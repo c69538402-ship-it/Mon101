@@ -1,5 +1,4 @@
-คำนวนหาค่าของวันนิ้งๆไม่เจ็บตัวนิ้งๆไม่เจ็บตัว datetime import datetime, timedelta
-import calendar
+importimport calendar
 import os
 import requests
 import streamlit as st
@@ -10,8 +9,7 @@ st.set_page_config(
 )
 
 
-# ฟังก์ชันแสดงโลโก้อย่างปลอดภัย
-def show_logo():
+# ฟังก์ชันแสดงโลโก้อย่างปลอGoldenef show_logo():
   if os.path.exists("logo.jpg"):
     st.image("logo.jpg", width=80)
 
