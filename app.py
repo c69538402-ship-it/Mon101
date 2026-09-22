@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+คำนวนหาค่าของวันนิ้งๆไม่เจ็บตัวนิ้งๆไม่เจ็บตัว datetime import datetime, timedelta
 import calendar
 import os
 import requests
@@ -83,7 +83,7 @@ def get_lunar_phase(date_obj):
     return f"ข้างแรม (แรม {int(phase_day - 15)} ค่ำ)"
 
 
-st.title("📅 แอปพลิเคชันปฏิทินลับ"อยู่นิ้งๆไม่เจ็บตัว (คำนวนหาค่าของวัน)")
+st.title("📅 แอปพลิเคชันปฏิทินลับ.อยู่นิ้งๆไม่เจ็บตัว (คำนวนหาค่าของวัน)")
 st.write(
     "เลือกหัวข้อที่คุณต้องการตรวจสอบด้านล่างนี้ ทุกหัวข้อแสดงโลโก้และระบบคำนวณ"
     " Gold Ratio"
