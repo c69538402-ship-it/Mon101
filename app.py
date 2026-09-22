@@ -1,14 +1,22 @@
 from datetime import datetime, timedelta
 import calendar
+import os
 import requests
 import streamlit as st
 
 # ตั้งค่าหน้าเว็บ Streamlit
 st.set_page_config(
-    page_title="แอปปฏิทินอเนกประสงค์", page_icon="📅", layout="wide"
+    page_title="แอปปฏิทินอเนกประสงค์ (Golden Ratio)", page_icon="📅", layout="wide"
 )
 
-# ข้อมูลปีนักษัตรไทย (เริ่มนับปีชวดตามรอบ 12 ปี โดยอิงปี พ.ศ. 2503 เป็นปีชวดตั้งต้น)
+
+# ฟังก์ชันแสดงโลโก้อย่างปลอดภัย
+def show_logo():
+  if os.path.exists("logo.jpg"):
+    st.image("logo.jpg", width=80)
+
+
+# ข้อมูลปีนักษัตรไทย
 naksat_list = [
     "ปีชวด (หนู)",
     "ปีฉลู (วัว)",
@@ -52,9 +60,9 @@ def get_zodiac(day, month):
   return "ราศีมังกร (Capricorn)"
 
 
-# ฟังก์ชันจำลองข้างขึ้น-ข้างแรม (แก้ไขให้รองรับชนิดข้อมูล date)
+# ฟังก์ชันจำลองข้างขึ้น-ข้างแรม
 def get_lunar_phase(date_obj):
-  known_new_moon = datetime(2026, 1, 18).date()  # แปลงเป็น .date() เพื่อให้ตรงกัน
+  known_new_moon = datetime(2026, 1, 18).date()
   diff = (date_obj - known_new_moon).days
   phase_day = diff % 29.53
   if phase_day < 1:
@@ -75,49 +83,55 @@ def get_lunar_phase(date_obj):
     return f"ข้างแรม (แรม {int(phase_day - 15)} ค่ำ)"
 
 
-st.title("📅 แอปพลิเคชันปฏิทินอเนกประสงค์ครบวงจร")
+st.title("📅 แอปพลิเคชันปฏิทินอเนกประสงค์ (รองรับค่าสมดุล 1.618)")
 st.write(
-    "เลือกหัวข้อที่คุณต้องการตรวจสอบด้านล่างนี้ สามารถดูข้อมูลย้อนหลังและดูตามตำแหน่งปัจจุบันได้"
+    "เลือกหัวข้อที่คุณต้องการตรวจสอบด้านล่างนี้ ทุกหัวข้อแสดงโลโก้และระบบคำนวณ"
+    " Gold Ratio"
 )
 
-# สร้าง Tabs สำหรับแยกหัวข้อการใช้งาน
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "🗓️ ปฏิทิน & ข้อมูลวันที่",
-    "🌙 ข้างขึ้น-ข้างแรม & นักษัตร",
+# สร้าง Tabs สำหรับแยกหัวข้อการใช้งาน (เพิ่ม 2 แท็บใหม่)
+tabs = st.tabs([
+    "🗓️ วันที่",
+    "🌙 ข้างขึ้น/แรม & นักษัตร",
     "⭐ ราศี & พ.ศ./ค.ศ.",
-    "🌍 นาฬิกาบอกเวลาโลก (ตามตำแหน่ง)",
-    "⛅ พยากรณ์อากาศ",
-    "⏪ ปฏิทินย้อนหลัง / ล่วงหน้า",
+    "🌍 เวลาโลก",
+    "⛅ อากาศ",
+    "⏪ ปฏิทินย้อนหลัง",
+    "⚖️ เปรียบเทียบ 2 วัน",
+    "✨ ค่าสมดุล 1.618",
 ])
 
-# ----------------- TAB 1: ปฏิทิน & ข้อมูลวันที่ -----------------
-with tab1:
-  st.subheader("ข้อมูลวันที่ วัน และเดือนปัจจุบัน/ที่เลือก")
-  selected_date = st.date_input("เลือกวันที่ต้องการตรวจสอบ", datetime.today())
+days_th = {
+    "Monday": "วันจันทร์",
+    "Tuesday": "วันอังคาร",
+    "Wednesday": "วันพุธ",
+    "Thursday": "วันพฤหัสบดี",
+    "Friday": "วันศุกร์",
+    "Saturday": "วันเสาร์",
+    "Sunday": "วันอาทิตย์",
+}
+months_th = {
+    1: "มกราคม",
+    2: "กุมภาพันธ์",
+    3: "มีนาคม",
+    4: "เมษายน",
+    5: "พฤษภาคม",
+    6: "มิถุนายน",
+    7: "กรกฎาคม",
+    8: "สิงหาคม",
+    9: "กันยายน",
+    10: "ตุลาคม",
+    11: "พฤศจิกายน",
+    12: "ธันวาคม",
+}
 
-  days_th = {
-      "Monday": "วันจันทร์",
-      "Tuesday": "วันอังคาร",
-      "Wednesday": "วันพุธ",
-      "Thursday": "วันพฤหัสบดี",
-      "Friday": "วันศุกร์",
-      "Saturday": "วันเสาร์",
-      "Sunday": "วันอาทิตย์",
-  }
-  months_th = {
-      1: "มกราคม",
-      2: "กุมภาพันธ์",
-      3: "มีนาคม",
-      4: "เมษายน",
-      5: "พฤษภาคม",
-      6: "มิถุนายน",
-      7: "กรกฎาคม",
-      8: "สิงหาคม",
-      9: "กันยายน",
-      10: "ตุลาคม",
-      11: "พฤศจิกายน",
-      12: "ธันวาคม",
-  }
+# ----------------- TAB 1: ปฏิทิน & ข้อมูลวันที่ -----------------
+with tabs[0]:
+  show_logo()
+  st.subheader("1-3. ข้อมูลวันที่ วัน และเดือน")
+  selected_date = st.date_input(
+      "เลือกวันที่ต้องการตรวจสอบ", datetime.today(), key="d1"
+  )
 
   eng_day = selected_date.strftime("%A")
   day_name_th = days_th.get(eng_day, eng_day)
@@ -129,8 +143,9 @@ with tab1:
   col3.metric("3. เดือน", month_name_th)
 
 # ----------------- TAB 2: ข้างขึ้น-ข้างแรม & นักษัตร -----------------
-with tab2:
-  st.subheader("ข้างขึ้น-ข้างแรม และ ปีนักษัตร")
+with tabs[1]:
+  show_logo()
+  st.subheader("4-5. ข้างขึ้น-ข้างแรม และ ปีนักษัตร")
   b_year = selected_date.year + 543
   lunar = get_lunar_phase(selected_date)
   naksat = get_naksat(b_year)
@@ -140,8 +155,9 @@ with tab2:
   c2.info(f"**5. ปีนักษัตร:**\n\n {naksat}")
 
 # ----------------- TAB 3: ราศี & ปี พ.ศ./ค.ศ. -----------------
-with tab3:
-  st.subheader("ปี พ.ศ. / ค.ศ. และ ราศี")
+with tabs[2]:
+  show_logo()
+  st.subheader("6-7. ปี พ.ศ. / ค.ศ. และ ราศี")
   ce_year = selected_date.year
   be_year = ce_year + 543
   zodiac = get_zodiac(selected_date.day, selected_date.month)
@@ -152,24 +168,19 @@ with tab3:
   c3.metric("7. ราศี", zodiac)
 
 # ----------------- TAB 4: นาฬิกาบอกเวลาโลกตามตำแหน่ง -----------------
-with tab4:
-  st.subheader(
-      "8. นาฬิกาบอกเวลาโลกตามตำแหน่งปัจจุบันของผู้ใช้ (Geolocated Time)"
-  )
-  st.write(
-      "ระบบจะดึงพิกัดจากเบราว์เซอร์ของคุณเพื่อแสดงเวลาท้องถิ่นและ Timezone"
-      " ที่คุณอยู่"
-  )
-
+with tabs[3]:
+  show_logo()
+  st.subheader("8. นาฬิกาบอกเวลาโลกตามตำแหน่งปัจจุบันของผู้ใช้")
+  st.write("ระบบดึงพิกัดจากเบราว์เซอร์เพื่อแสดงเวลาท้องถิ่น")
   loc_html = """
-    <div id="location-time" style="font-size: 20px; font-weight: bold; padding: 10px; background-color: #f0f2f6; border-radius: 8px;">
+    <div id="location-time" style="font-size: 18px; font-weight: bold; padding: 10px; background-color: #f0f2f6; border-radius: 8px;">
         กำลังค้นหาตำแหน่งของคุณ...
     </div>
     <script>
     function updateTime() {
         const now = new Date();
         document.getElementById('location-time').innerHTML = 
-            "🕒 เวลาท้องถิ่นตามอุปกรณ์: " + now.toLocaleString() + "<br>" +
+            "🕒 เวลาท้องถิ่น: " + now.toLocaleString() + "<br>" +
             "🌍 Timezone: " + Intl.DateTimeFormat().resolvedOptions().timeZone;
     }
     setInterval(updateTime, 1000);
@@ -179,10 +190,12 @@ with tab4:
   st.components.v1.html(loc_html, height=100)
 
 # ----------------- TAB 5: พยากรณ์อากาศ -----------------
-with tab5:
+with tabs[4]:
+  show_logo()
   st.subheader("9. พยากรณ์อากาศ")
   city = st.text_input(
-      "พิมพ์ชื่อเมืองหรือจังหวัด (ภาษาอังกฤษ เช่น Bangkok, Roi Et)", value="Bangkok"
+      "พิมพ์ชื่อเมืองหรือจังหวัด (ภาษาอังกฤษ เช่น Bangkok, Roi Et)",
+      value="Bangkok",
   )
 
   if st.button("🔍 ค้นหาพยากรณ์อากาศ"):
@@ -207,12 +220,13 @@ with tab5:
         st.metric("🌡️ อุณหภูมิปัจจุบัน", f"{current['temperature']} °C")
         st.metric("💨 ความเร็วลม", f"{current['windspeed']} km/h")
       else:
-        st.error("ไม่พบข้อมูลเมืองที่คุณค้นหา กรุณาลองใหม่อีกครั้ง")
+        st.error("ไม่พบข้อมูลเมืองที่คุณค้นหา")
     except Exception as e:
-      st.error(f"เกิดข้อผิดพลาดในการดึงข้อมูลอากาศ: {e}")
+      st.error(f"เกิดข้อผิดพลาด: {e}")
 
 # ----------------- TAB 6: ดูปฏิทินย้อนหลัง / ล่วงหน้า -----------------
-with tab6:
+with tabs[5]:
+  show_logo()
   st.subheader("10. ดูปฏิทินย้อนหลังและล่วงหน้า")
   col_y, col_m = st.columns(2)
   with col_y:
@@ -231,7 +245,96 @@ with tab6:
     )
 
   st.write(f"### ปฏิทินเดือน {months_th[target_month]} พ.ศ. {target_year + 543}")
-
   cal_text = calendar.month(target_year, target_month)
   st.text(cal_text)
+
+# ----------------- TAB 7: เปรียบเทียบ 2 วัน -----------------
+with tabs[6]:
+  show_logo()
+  st.subheader("⚖️ หัวข้อใหม่: เปรียบเทียบรายละเอียด 2 วัน")
+  col_d1, col_d2 = st.columns(2)
+  with col_d1:
+    date_a = st.date_input("เลือกวันที่ 1", datetime.today(), key="compare_a")
+  with col_d2:
+    date_b = st.date_input(
+        "เลือกวันที่ 2",
+        datetime.today() + timedelta(days=7),
+        key="compare_b",
+    )
+
+  diff_days = abs((date_b - date_a).days)
+  st.info(
+      f"📌 ระยะเวลาห่างกันทั้งหมด: **{diff_days} วัน** (หรือประมาณ"
+      f" {round(diff_days / 7, 1)} สัปดาห์)"
+  )
+
+  col_res1, col_res2 = st.columns(2)
+  with col_res1:
+    st.markdown(f"### วันที่ 1: {date_a.strftime('%d/%m/%Y')}")
+    st.write(
+        f"- **วัน:** {days_th.get(date_a.strftime('%A'))}"
+        f" {months_th[date_a.month]} {date_a.year + 543}"
+    )
+    st.write(f"- **ข้างขึ้น/แรม:** {get_lunar_phase(date_a)}")
+    st.write(f"- **ราศี:** {get_zodiac(date_a.day, date_a.month)}")
+    st.write(f"- **นักษัตร:** {get_naksat(date_a.year + 543)}")
+
+  with col_res2:
+    st.markdown(f"### วันที่ 2: {date_b.strftime('%d/%m/%Y')}")
+    st.write(
+        f"- **วัน:** {days_th.get(date_b.strftime('%A'))}"
+        f" {months_th[date_b.month]} {date_b.year + 543}"
+    )
+    st.write(f"- **ข้างขึ้น/แรม:** {get_lunar_phase(date_b)}")
+    st.write(f"- **ราศี:** {get_zodiac(date_b.day, date_b.month)}")
+    st.write(f"- **นักษัตร:** {get_naksat(date_b.year + 543)}")
+
+# ----------------- TAB 8: ค่าสมดุลทองคำ (1.618) -----------------
+with tabs[7]:
+  show_logo()
+  st.subheader("✨ หัวข้อใหม่: คำนวณค่าสมดุลของวันด้วยหลักการ 1.618 (Golden Ratio)")
+  st.write(
+      "ระบบจะนำวันที่เลือกมาคำนวณสัดส่วนความสมดุลตามสัดส่วนทองคำ (Golden Ratio:"
+      " 1.618) เพื่อวิเคราะห์จุดกึ่งกลางและพลังงานสมดุลของรอบวัน"
+  )
+
+  golden_date = st.date_input(
+      "เลือกวันที่ต้องการหาค่าสมดุล 1.618", datetime.today(), key="golden_d"
+  )
+
+  # คำนวณค่าสมดุล 1.618 จากลำดับวันในรอบปี (Day of Year)
+  day_of_year = golden_date.timetuple().tm_yday
+  total_days_in_year = (
+      366 if calendar.isleap(golden_date.year) else 365
+  )
+
+  # ใช้สูตรสัดส่วนทองคำ 1.618 มาคำนวณจุดสมดุล
+  golden_point = (day_of_year / 1.618) % total_days_in_year
+  harmony_score = min(
+      100,
+      round(
+          (1 - abs((day_of_year - (total_days_in_year / 1.618))) / 365) * 100,
+          2,
+      ),
+  )
+
+  st.metric(
+      "📐 วันที่ในรอบปี (Day of Year)",
+      f"{day_of_year} / {total_days_in_year}",
+  )
+  st.metric(
+      "✨ ดัชนีความสมดุลทองคำ (Golden Harmony Score)", f"{harmony_score}%"
+  )
+
+  if harmony_score > 50:
+    st.success(
+        "🌟 วันนี้อยู่ในเกณฑ์สัดส่วนสมดุลตามหลัก 1.618 (มีความกลมกลืนและเสถียรสูง)"
+    )
+  else:
+    st.warning("⚡ วันนี้อยู่ในช่วงการเปลี่ยนแปลงวัฏจักรตามสัดส่วน 1.618")
+
+  st.markdown(
+      "--- \n*หมายเหตุ: การคำนวณทั้งหมดในหัวข้อนี้อ้างอิงตัวเลขค่าคงที่สมดุล"
+      " **1.618** เป็นหลักการหลัก*"
+    )
     
