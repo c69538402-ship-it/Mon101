@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import calendar
 import requests
 import streamlit as st
 
@@ -25,7 +26,6 @@ naksat_list = [
 
 
 def get_naksat(buddhist_year):
-  # ปี พ.ศ. 2503 เป็นปีชวด (index 0)
   base_year = 2503
   index = (buddhist_year - base_year) % 12
   return naksat_list[index]
@@ -34,17 +34,17 @@ def get_naksat(buddhist_year):
 # ฟังก์ชันคำนวณราศีตามสากล
 def get_zodiac(day, month):
   zodiacs = [
-    ((1, 20), (2, 18), "ราศีกุมภ์ (Aquarius)"),
-    ((2, 19), (3, 20), "ราศีมีน (Pisces)"),
-    ((3, 21), (4, 19), "ราศีเมษ (Aries)"),
-    ((4, 20), (5, 20), "ราศีพฤษภ (Taurus)"),
-    ((5, 21), (6, 20), "ราศีเมถุน (Gemini)"),
-    ((6, 21), (7, 22), "ราศีกรกฎ (Cancer)"),
-    ((7, 23), (8, 22), "ราศีสิงห์ (Leo)"),
-    ((8, 23), (9, 22), "ราศีกันย์ (Virgo)"),
-    ((9, 23), (10, 22), "ราศีตุลย์ (Libra)"),
-    ((10, 23), (11, 21), "ราศีพิจิก (Scorpio)"),
-    ((11, 22), (12, 21), "ราศีธนู (Sagittarius)"),
+      ((1, 20), (2, 18), "ราศีกุมภ์ (Aquarius)"),
+      ((2, 19), (3, 20), "ราศีมีน (Pisces)"),
+      ((3, 21), (4, 19), "ราศีเมษ (Aries)"),
+      ((4, 20), (5, 20), "ราศีพฤษภ (Taurus)"),
+      ((5, 21), (6, 20), "ราศีเมถุน (Gemini)"),
+      ((6, 21), (7, 22), "ราศีกรกฎ (Cancer)"),
+      ((7, 23), (8, 22), "ราศีสิงห์ (Leo)"),
+      ((8, 23), (9, 22), "ราศีกันย์ (Virgo)"),
+      ((9, 23), (10, 22), "ราศีตุลย์ (Libra)"),
+      ((10, 23), (11, 21), "ราศีพิจิก (Scorpio)"),
+      ((11, 22), (12, 21), "ราศีธนู (Sagittarius)"),
   ]
   for (s_m, s_d), (e_m, e_d), name in zodiacs:
     if (month == s_m and day >= s_d) or (month == e_m and day <= e_d):
@@ -52,10 +52,9 @@ def get_zodiac(day, month):
   return "ราศีมังกร (Capricorn)"
 
 
-# ฟังก์ชันจำลองข้างขึ้น-ข้างแรม (อย่างง่าย)
+# ฟังก์ชันจำลองข้างขึ้น-ข้างแรม (แก้ไขให้รองรับชนิดข้อมูล date)
 def get_lunar_phase(date_obj):
-  # ใช้ค่าอ้างอิงรอบดวงจันทร์ประมาณ 29.53 วัน
-  known_new_moon = datetime(2026, 1, 18)
+  known_new_moon = datetime(2026, 1, 18).date()  # แปลงเป็น .date() เพื่อให้ตรงกัน
   diff = (date_obj - known_new_moon).days
   phase_day = diff % 29.53
   if phase_day < 1:
@@ -149,7 +148,7 @@ with tab3:
 
   c1, c2, c3 = st.columns(3)
   c1.metric("6. ปี พ.ศ.", be_year)
-  c1.metric("ปี ค.ศ.", ce_year)
+  c2.metric("ปี ค.ศ.", ce_year)
   c3.metric("7. ราศี", zodiac)
 
 # ----------------- TAB 4: นาฬิกาบอกเวลาโลกตามตำแหน่ง -----------------
@@ -162,7 +161,6 @@ with tab4:
       " ที่คุณอยู่"
   )
 
-  # ใช้โค้ด JavaScript ฝังใน Streamlit เพื่อดึง Geolocation และแสดงเวลา
   loc_html = """
     <div id="location-time" style="font-size: 20px; font-weight: bold; padding: 10px; background-color: #f0f2f6; border-radius: 8px;">
         กำลังค้นหาตำแหน่งของคุณ...
@@ -183,12 +181,15 @@ with tab4:
 # ----------------- TAB 5: พยากรณ์อากาศ -----------------
 with tab5:
   st.subheader("9. พยากรณ์อากาศ")
-  city = st.text_input("พิมพ์ชื่อเมืองหรือจังหวัด (ภาษาอังกฤษ เช่น Bangkok, Roi Et)", value="Bangkok")
+  city = st.text_input(
+      "พิมพ์ชื่อเมืองหรือจังหวัด (ภาษาอังกฤษ เช่น Bangkok, Roi Et)", value="Bangkok"
+  )
 
   if st.button("🔍 ค้นหาพยากรณ์อากาศ"):
-    # ใช้ Open-Meteo API ฟรี (ไม่ต้องใช้ API Key) ในการดึงพยากรณ์อากาศ
     try:
-      geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1"
+      geo_url = (
+          f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1"
+      )
       geo_res = requests.get(geo_url).json()
       if "results" in geo_res:
         lat = geo_res["results"][0]["latitude"]
@@ -216,17 +217,21 @@ with tab6:
   col_y, col_m = st.columns(2)
   with col_y:
     target_year = st.number_input(
-        "เลือกปี (ค.ศ.)", min_value=1900, max_value=2100, value=datetime.today().year
+        "เลือกปี (ค.ศ.)",
+        min_value=1900,
+        max_value=2100,
+        value=datetime.today().year,
     )
   with col_m:
     target_month = st.selectbox(
-        "เลือกเดือน", range(1, 13), format_func=lambda x: months_th[x], index=datetime.today().month - 1
+        "เลือกเดือน",
+        range(1, 13),
+        format_func=lambda x: months_th[x],
+        index=datetime.today().month - 1,
     )
 
   st.write(f"### ปฏิทินเดือน {months_th[target_month]} พ.ศ. {target_year + 543}")
 
-  # สร้างตารางปฏิทินแบบง่าย
-  import calendar
   cal_text = calendar.month(target_year, target_month)
   st.text(cal_text)
-        
+    
