@@ -1,4 +1,5 @@
-importimport calendar
+from datetime import datetime, timedelta
+import calendar
 import os
 import requests
 import streamlit as st
@@ -9,7 +10,8 @@ st.set_page_config(
 )
 
 
-# ฟังก์ชันแสดงโลโก้อย่างปลอGoldenef show_logo():
+# ฟังก์ชันแสดงโลโก้อย่างปลอดภัย
+def show_logo():
   if os.path.exists("logo.jpg"):
     st.image("logo.jpg", width=80)
 
@@ -81,7 +83,7 @@ def get_lunar_phase(date_obj):
     return f"ข้างแรม (แรม {int(phase_day - 15)} ค่ำ)"
 
 
-st.title("📅 แอปพลิเคชันปฏิทินลับ.อยู่นิ้งๆไม่เจ็บตัว (คำนวนหาค่าของวัน)")
+st.title("📅 แอปพลิเคชันปฏิทิน.อยู่นิ้งๆไม่เจ็บตัว (คำนวนหาค่าตัวเลขของวัน)")
 st.write(
     "เลือกหัวข้อที่คุณต้องการตรวจสอบด้านล่างนี้ ทุกหัวข้อแสดงโลโก้และระบบคำนวณ"
     " Gold Ratio"
@@ -334,5 +336,5 @@ with tabs[7]:
   st.markdown(
       "--- \n*หมายเหตุ: การคำนวณทั้งหมดในหัวข้อนี้อ้างอิงตัวเลขค่าคงที่สมดุล"
       " **1.618** เป็นหลักการหลัก*"
-    )
+  )
     
