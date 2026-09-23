@@ -1,3 +1,4 @@
+import os
 import math
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -823,20 +824,3 @@ with tabs[4]:
                             "ความเร็วลม: "
                             f"**{current.get('wind_speed_10m', '-')} km/h**"
                         )
-
-                        daily = weather.get(
-                            "daily",
-                            {},
-                        )
-
-                        if daily:
-                            rows = []
-
-                            times = daily.get(
-                                "time",
-                                [],
-                            )
-
-                            max_temp = daily.get(
-                                "temperature_2m_max",
-                                [],
