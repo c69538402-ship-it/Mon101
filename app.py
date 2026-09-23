@@ -1,3 +1,4 @@
+```python
 import os
 import math
 import calendar
@@ -117,6 +118,7 @@ thai_months = {
 # =========================================================
 
 def get_thai_lunar_date(date_obj):
+
     try:
         return to_lunar_date(date_obj)
 
@@ -132,8 +134,12 @@ def get_thai_lunar_date(date_obj):
 # =========================================================
 
 def get_thai_zodiac(year):
+
     try:
-        return th_zodiac(year, output_type=1)
+        return th_zodiac(
+            year,
+            output_type=1
+        )
 
     except Exception as e:
         return f"ไม่สามารถคำนวณนักษัตรได้: {e}"
@@ -160,6 +166,7 @@ western_zodiac = [
 
 
 def get_western_zodiac(date_obj):
+
     try:
 
         bangkok = ZoneInfo("Asia/Bangkok")
@@ -176,7 +183,9 @@ def get_western_zodiac(date_obj):
 
         utc_dt = local_dt.astimezone(
             timezone.utc
-        ).replace(tzinfo=None)
+        ).replace(
+            tzinfo=None
+        )
 
         sun = ephem.Sun(utc_dt)
 
@@ -188,11 +197,17 @@ def get_western_zodiac(date_obj):
 
         longitude_deg %= 360
 
-        index = int(longitude_deg // 30)
+        index = int(
+            longitude_deg // 30
+        )
 
-        thai_name, english_name = western_zodiac[index]
+        thai_name, english_name = (
+            western_zodiac[index]
+        )
 
-        degree_in_sign = longitude_deg % 30
+        degree_in_sign = (
+            longitude_deg % 30
+        )
 
         return {
             "thai": thai_name,
@@ -235,10 +250,21 @@ def golden_ratio_info(date_obj):
 
     year = date_obj.year
 
-    start = date(year, 1, 1)
-    end = date(year + 1, 1, 1)
+    start = date(
+        year,
+        1,
+        1
+    )
 
-    total_days = (end - start).days
+    end = date(
+        year + 1,
+        1,
+        1
+    )
+
+    total_days = (
+        end - start
+    ).days
 
     day_number = (
         date_obj - start
@@ -258,7 +284,9 @@ def golden_ratio_info(date_obj):
 
     golden_date = (
         start
-        + timedelta(days=nearest_day - 1)
+        + timedelta(
+            days=nearest_day - 1
+        )
     )
 
     return {
@@ -440,9 +468,7 @@ def normalize_lottery_number(value):
     if value is None:
         return ""
 
-    value = str(value).strip()
-
-    return value
+    return str(value).strip()
 
 
 def extract_numbers(obj):
@@ -687,9 +713,7 @@ def parse_lottery_result(
     }
 
 
-def generate_possible_draw_dates(
-    year
-):
+def generate_possible_draw_dates(year):
 
     dates = []
 
@@ -752,18 +776,10 @@ def get_lottery_year(year):
         if result:
 
             if (
-                result.get(
-                    "รางวัลที่ 1"
-                )
-                or result.get(
-                    "เลขท้าย 2 ตัว"
-                )
-                or result.get(
-                    "เลขหน้า 3 ตัว"
-                )
-                or result.get(
-                    "เลขท้าย 3 ตัว"
-                )
+                result.get("รางวัลที่ 1")
+                or result.get("เลขท้าย 2 ตัว")
+                or result.get("เลขหน้า 3 ตัว")
+                or result.get("เลขท้าย 3 ตัว")
             ):
 
                 rows.append(
@@ -864,7 +880,7 @@ tabs = st.tabs(
 
 
 # =========================================================
-# TAB 1
+# TAB 1 - DATE
 # =========================================================
 
 with tabs[0]:
@@ -906,18 +922,21 @@ with tabs[0]:
     )
 
     with col1:
+
         st.metric(
             "ค.ศ.",
             ce
         )
 
     with col2:
+
         st.metric(
             "พ.ศ.",
             be
         )
 
     with col3:
+
         st.metric(
             "วันที่ของปี",
             selected_date.timetuple().tm_yday
@@ -925,7 +944,7 @@ with tabs[0]:
 
 
 # =========================================================
-# TAB 2
+# TAB 2 - LUNAR
 # =========================================================
 
 with tabs[1]:
@@ -962,7 +981,7 @@ with tabs[1]:
 
 
 # =========================================================
-# TAB 3
+# TAB 3 - ZODIAC
 # =========================================================
 
 with tabs[2]:
@@ -1014,22 +1033,23 @@ with tabs[2]:
             "### ☀️ ราศีตะวันตก"
         )
 
-        western = (
-            get_western_zodiac(
-                selected_date
-            )
+        western = get_western_zodiac(
+            selected_date
         )
 
-        st.markdown(
-            f"""
-            <div class="info-box">
-                <div class="big-number">
-                    {western["thai"]}
-                </div>
+        western_thai = western.get(
+            "thai",
+            "ไม่ทราบ"
+        )
 
-                <div style="
-                    text-align:center;
-                    font-size:20px;
-                ">
-                    {western["english"]}
-                
+        western_english = western.get(
+            "english",
+            "Unknown"
+        )
+
+        western_longitude = western.get(
+            "longitude"
+        )
+
+        western_degree = western.get(
+    
