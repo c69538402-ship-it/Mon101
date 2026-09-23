@@ -1051,4 +1051,4 @@ with tabs[2]:
         )
 
         western_degree = western.get(
-    
+            "d
