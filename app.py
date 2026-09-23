@@ -1,28 +1,17 @@
 import os
 import math
-from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
-
+import time
+import glob
 import requests
 import pandas as pd
 import streamlit as st
+from datetime import datetime, date, timezone
+from zoneinfo import ZoneInfo
 
-# Optional libraries
-try:
-import ephem    
-except Exception:
-    ephem = None
+import ephem
 
-try:
-    from pythainlp.util import to_lunar_date
-except Exception:
-    to_lunar_date = None
-
-try:
-    from pythainlp.corpus import th_zodiac
-except Exception:
-    th_zodiac = None
-
+from pythainlp.util import to_lunar_date
+from pythainlp.corpus import th_zodiac
 
 # =========================================================
 # CONFIG
