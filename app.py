@@ -1,826 +1,270 @@
 import os
 import math
-from datetime import date, datetime, timedelta, timezone
+from import import datetime, date, timezone
 from zoneinfo import ZoneInfo
 
 import requests
 import pandas as pd
 import streamlit as st
 
-# Optional libraries
 try:
     import ephem
-except Exception:
+except ImportError:
     ephem = None
 
 try:
     from pythainlp.util import to_lunar_date
-except Exception:
+except ImportError:
     to_lunar_date = None
 
 try:
     from pythainlp.corpus import th_zodiac
-except Exception:
+except ImportError:
     th_zodiac = None
 
-
-# =========================================================
-# CONFIG
-# =========================================================
-
-st.set_page_config(
-    page_title="Mon101",
-    page_icon="🌙",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-BANGKOK_TZ = ZoneInfo("Asia/Bangkok")
+BANGKOK = ZoneInfo("Asia/Bangkok")
 
+st.set_page_config(page_title="Mon101", page_icon="📅", layout="wide")
+st.title("Mon101")
+st.caption("ปฏิทิน • จันทรคติ • นักษัตร • ราศี • เวลาโลก • อากาศ • Golden Ratio • เพลง • หวย")
 
-# =========================================================
-# CSS
-# =========================================================
+def thai_date(dt):
+    months = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
+              "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"]
+    return f"{dt.day} {months[dt.month - 1]} {dt.year + 543}"
 
-st.markdown(
-    """
-    <style>
-    .main {
-        background-color: #fafafa;
-    }
-
-    .hero {
-        padding: 25px;
-        border-radius: 20px;
-        background: linear-gradient(
-            135deg,
-            #111827,
-            #312e81
-        );
-        color: white;
-        margin-bottom: 20px;
-    }
-
-    .hero h1 {
-        margin: 0;
-        font-size: 42px;
-    }
-
-    .hero p {
-        margin-top: 8px;
-        font-size: 17px;
-        opacity: 0.9;
-    }
-
-    .info-box {
-        padding: 20px;
-        border-radius: 18px;
-        background: white;
-        border: 1px solid #e5e7eb;
-        margin-bottom: 15px;
-    }
-
-    .big-number {
-        font-size: 38px;
-        font-weight: 700;
-        text-align: center;
-    }
-
-    .small-label {
-        text-align: center;
-        color: #6b7280;
-        font-size: 14px;
-    }
-
-    .result-card {
-        padding: 18px;
-        border-radius: 16px;
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        margin-bottom: 12px;
-    }
-
-    .music-card {
-        padding: 15px;
-        border-radius: 15px;
-        background: #f3f4f6;
-        margin-bottom: 10px;
-    }
-
-    footer {
-        visibility: hidden;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
-# HELPER FUNCTIONS
-# =========================================================
-
-THAI_MONTHS = [
-    "มกราคม",
-    "กุมภาพันธ์",
-    "มีนาคม",
-    "เมษายน",
-    "พฤษภาคม",
-    "มิถุนายน",
-    "กรกฎาคม",
-    "สิงหาคม",
-    "กันยายน",
-    "ตุลาคม",
-    "พฤศจิกายน",
-    "ธันวาคม",
-]
-
-THAI_DAYS = [
-    "จันทร์",
-    "อังคาร",
-    "พุธ",
-    "พฤหัสบดี",
-    "ศุกร์",
-    "เสาร์",
-    "อาทิตย์",
-]
-
-THAI_WEATHER = {
-    0: "ท้องฟ้าแจ่มใส",
-    1: "มีเมฆเล็กน้อย",
-    2: "มีเมฆเป็นบางส่วน",
-    3: "มีเมฆมาก",
-    45: "มีหมอก",
-    48: "มีหมอกจับตัว",
-    51: "ฝนปรอยเล็กน้อย",
-    53: "ฝนปรอย",
-    55: "ฝนปรอยหนัก",
-    61: "ฝนเล็กน้อย",
-    63: "ฝนปานกลาง",
-    65: "ฝนตกหนัก",
-    71: "หิมะตกเล็กน้อย",
-    73: "หิมะตกปานกลาง",
-    75: "หิมะตกหนัก",
-    80: "ฝนซู่เล็กน้อย",
-    81: "ฝนซู่",
-    82: "ฝนซู่หนัก",
-    95: "พายุฝนฟ้าคะนอง",
-    96: "พายุฝนฟ้าคะนองและลูกเห็บ",
-    99: "พายุฝนฟ้าคะนองรุนแรง",
-}
-
-
-def thai_date_string(d):
-    """แสดงวันที่ภาษาไทย"""
-    weekday = THAI_DAYS[d.weekday()]
-    month = THAI_MONTHS[d.month - 1]
-    year = d.year + 543
-
-    return f"วัน{weekday}ที่ {d.day} {month} พ.ศ. {year}"
-
-
-def western_zodiac_from_longitude(longitude):
-    """คำนวณราศีตะวันตกจากองศาสุริยวิถี"""
-    signs = [
-        ("เมษ", "Aries"),
-        ("พฤษภ", "Taurus"),
-        ("เมถุน", "Gemini"),
-        ("กรกฎ", "Cancer"),
-        ("สิงห์", "Leo"),
-        ("กันย์", "Virgo"),
-        ("ตุล", "Libra"),
-        ("พิจิก", "Scorpio"),
-        ("ธนู", "Sagittarius"),
-        ("มังกร", "Capricorn"),
-        ("กุมภ์", "Aquarius"),
-        ("มีน", "Pisces"),
-    ]
-
-    index = int(longitude // 30) % 12
-    degree_in_sign = longitude % 30
-
-    return {
-        "thai": signs[index][0],
-        "english": signs[index][1],
-        "degree": degree_in_sign,
-        "longitude": longitude,
-    }
-
-
-def calculate_western_zodiac(d):
-    """
-    ใช้ ephem คำนวณตำแหน่งดวงอาทิตย์บน ecliptic
-    โดยใช้เวลาเที่ยงของประเทศไทยเป็นจุดอ้างอิง
-    """
+def western_zodiac(dt):
     if ephem is None:
-        return None
+        return {"name": "ไม่พร้อมใช้งาน", "degree": None}
+    local_dt = datetime(dt.year, dt.month, dt.day, 12, tzinfo=BANGKOK)
+    utc_dt = local_dt.astimezone(timezone.utc).replace(tzinfo=None)
+    sun = ephem.Sun(utc_dt)
+    longitude = math.degrees(float(ephem.Ecliptic(sun).lon)) % 360.0
+    signs = [
+        ("เมษ",0,30),("พฤษภ",30,60),("เมถุน",60,90),("กรกฎ",90,120),
+        ("สิงห์",120,150),("กันย์",150,180),("ตุล",180,210),("พิจิก",210,240),
+        ("ธนู",240,270),("มังกร",270,300),("กุมภ์",300,330),("มีน",330,360)
+    ]
+    for name, start, end in signs:
+        if start <= longitude < end:
+            return {"name": name, "degree": longitude - start, "longitude": longitude}
+    return {"name": "ไม่ทราบ", "degree": None, "longitude": longitude}
 
-    try:
-        local_dt = datetime(
-            d.year,
-            d.month,
-            d.day,
-            12,
-            0,
-            0,
-            tzinfo=BANGKOK_TZ,
-        )
-
-        utc_dt = local_dt.astimezone(timezone.utc)
-        utc_naive = utc_dt.replace(tzinfo=None)
-
-        sun = ephem.Sun(utc_naive)
-        ecliptic = ephem.Ecliptic(sun)
-
-        longitude = math.degrees(float(ecliptic.lon))
-        longitude = longitude % 360
-
-        return western_zodiac_from_longitude(longitude)
-
-    except Exception:
-        return None
-
-
-def get_thai_lunar_date(d):
-    """แปลงวันที่สากลเป็นข้อมูลจันทรคติไทย"""
+def lunar_date_text(dt):
     if to_lunar_date is None:
-        return None
-
+        return "ติดตั้ง PyThaiNLP เพื่อแสดงจันทรคติ"
     try:
-        lunar = to_lunar_date(d.year, d.month, d.day)
-        return lunar
-    except Exception:
-        return None
+        return str(to_lunar_date(dt))
+    except Exception as exc:
+        return f"อ่านจันทรคติไม่ได้: {exc}"
 
-
-def get_thai_zodiac(year):
-    """เรียกข้อมูลนักษัตรจาก PyThaiNLP"""
+def thai_zodiac_text(dt):
     if th_zodiac is None:
-        return None
-
+        return "ติดตั้ง PyThaiNLP เพื่อแสดงนักษัตร"
     try:
-        return th_zodiac(year, output_type=1)
-    except Exception:
-        try:
-            return th_zodiac(year)
-        except Exception:
-            return None
+        return str(th_zodiac(dt.year))
+    except Exception as exc:
+        return f"อ่านนักษัตรไม่ได้: {exc}"
 
-
-def golden_ratio():
-    """อัตราส่วนทองคำทางคณิตศาสตร์"""
-    return (1 + math.sqrt(5)) / 2
-
-
-def format_seconds(seconds):
-    seconds = int(seconds)
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
-
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
-# =========================================================
-# WEATHER
-# =========================================================
+def weather_code_text(code):
+    mapping = {
+        0:"ท้องฟ้าแจ่มใส",1:"มีเมฆเล็กน้อย",2:"มีเมฆบางส่วน",3:"มีเมฆมาก",
+        45:"มีหมอก",48:"มีหมอกจับตัว",51:"ฝนปรอยเล็กน้อย",53:"ฝนปรอย",
+        55:"ฝนปรอยหนัก",61:"ฝนเล็กน้อย",63:"ฝนปานกลาง",65:"ฝนหนัก",
+        71:"หิมะเล็กน้อย",73:"หิมะปานกลาง",75:"หิมะหนัก",80:"ฝนซู่เล็กน้อย",
+        81:"ฝนซู่ปานกลาง",82:"ฝนซู่หนัก",95:"พายุฝนฟ้าคะนอง",
+        96:"พายุฝนฟ้าคะนองและลูกเห็บ",99:"พายุฝนฟ้าคะนองและลูกเห็บหนัก"
+    }
+    return mapping.get(code, f"รหัสอากาศ {code}")
 
 @st.cache_data(ttl=1800)
 def geocode_city(city):
-    url = "https://geocoding-api.open-meteo.com/v1/search"
-
-    params = {
-        "name": city,
-        "count": 1,
-        "language": "th",
-        "format": "json",
-    }
-
-    response = requests.get(
-        url,
-        params=params,
-        timeout=15,
+    r = requests.get(
+        "https://geocoding-api.open-meteo.com/v1/search",
+        params={"name":city,"count":1,"language":"th","format":"json"},
+        timeout=15
     )
+    r.raise_for_status()
+    results = r.json().get("results", [])
+    return results[0] if results else None
 
-    response.raise_for_status()
-
-    data = response.json()
-    results = data.get("results", [])
-
-    if not results:
-        return None
-
-    item = results[0]
-
-    return {
-        "name": item.get("name", city),
-        "country": item.get("country", ""),
-        "latitude": item["latitude"],
-        "longitude": item["longitude"],
-        "timezone": item.get("timezone", "Asia/Bangkok"),
-    }
-
-
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=900)
 def get_weather(latitude, longitude):
-    url = "https://api.open-meteo.com/v1/forecast"
+    r = requests.get(
+        "https://api.open-meteo.com/v1/forecast",
+        params={
+            "latitude":latitude, "longitude":longitude,
+            "current":"temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,wind_speed_10m",
+            "timezone":"Asia/Bangkok"
+        },
+        timeout=15
+    )
+    r.raise_for_status()
+    return r.json()
 
-    params = {
-        "latitude": latitude,
-        "longitude": longitude,
-        "current": (
-            "temperature_2m,"
-            "relative_humidity_2m,"
-            "apparent_temperature,"
-            "precipitation,"
-            "weather_code,"
-            "wind_speed_10m"
-        ),
-        "daily": (
-            "weather_code,"
-            "temperature_2m_max,"
-            "temperature_2m_min,"
-            "precipitation_probability_max,"
-            "sunrise,"
-            "sunset"
-        ),
-        "forecast_days": 7,
-        "timezone": "auto",
-    }
-
-    response = requests.get(
-        url,
-        params=params,
-        timeout=15,
+def discover_music():
+    extensions = (".mp3",".wav",".ogg",".m4a",".aac")
+    return sorted(
+        os.path.join(APP_DIR, name)
+        for name in os.listdir(APP_DIR)
+        if os.path.isfile(os.path.join(APP_DIR, name)) and name.lower().endswith(extensions)
     )
 
-    response.raise_for_status()
-
-    return response.json()
-
-
-# =========================================================
-# LOTTERY
-# =========================================================
-
-GLO_API_URL = "https://www.glo.or.th/api/lottery/getLotteryResult"
-
-
-@st.cache_data(ttl=86400)
-def get_lottery_result(draw_date):
-    """
-    เรียก API ผลสลากกินแบ่งรัฐบาลของสำนักงานสลากกินแบ่งรัฐบาล
-
-    API อาจเปลี่ยนโครงสร้างในอนาคต จึงแยก parser
-    ออกจากส่วน UI เพื่อให้แก้ได้ง่าย
-    """
-    payload = {
-        "date": draw_date.strftime("%Y-%m-%d")
+def golden_ratio_info(a, b):
+    phi = (1 + math.sqrt(5)) / 2
+    ratio = a / b
+    return {
+        "ratio": ratio,
+        "phi": phi,
+        "difference": abs(ratio - phi),
+        "percent_difference": abs(ratio - phi) / phi * 100
     }
 
+def lottery_api():
     try:
-        response = requests.post(
-            GLO_API_URL,
-            json=payload,
-            timeout=20,
-        )
-
-        response.raise_for_status()
-
-        return response.json()
-
+        r = requests.post("https://www.glo.or.th/api/lottery/getLotteryResult",
+                          json={}, timeout=20)
+        r.raise_for_status()
+        return r.json()
     except Exception as exc:
-        return {
-            "_error": str(exc)
-        }
+        return {"error": str(exc)}
 
+now = datetime.now(BANGKOK)
+today = now.date()
 
-def flatten_lottery_data(data):
-    """
-    พยายามดึงข้อมูลรางวัลออกจาก JSON แบบทั่วไป
-    เพราะ schema ของ API อาจเปลี่ยนได้
-    """
-    rows = []
-
-    def walk(obj, path=""):
-        if isinstance(obj, dict):
-            for key, value in obj.items():
-                new_path = f"{path}.{key}" if path else str(key)
-
-                if isinstance(value, (dict, list)):
-                    walk(value, new_path)
-                else:
-                    rows.append(
-                        {
-                            "รายการ": new_path,
-                            "ค่า": value,
-                        }
-                    )
-
-        elif isinstance(obj, list):
-            for index, value in enumerate(obj):
-                new_path = f"{path}[{index}]"
-
-                if isinstance(value, (dict, list)):
-                    walk(value, new_path)
-                else:
-                    rows.append(
-                        {
-                            "รายการ": new_path,
-                            "ค่า": value,
-                        }
-                    )
-
-    walk(data)
-
-    return rows
-
-
-# =========================================================
-# MUSIC
-# =========================================================
-
-def find_music_files():
-    extensions = (
-        ".mp3",
-        ".wav",
-        ".ogg",
-        ".m4a",
-        ".aac",
-    )
-
-    files = []
-
-    try:
-        for filename in os.listdir(APP_DIR):
-            full_path = os.path.join(APP_DIR, filename)
-
-            if (
-                os.path.isfile(full_path)
-                and filename.lower().endswith(extensions)
-            ):
-                files.append(full_path)
-
-    except Exception:
-        return []
-
-    return sorted(files)
-
-
-# =========================================================
-# HEADER
-# =========================================================
-
-st.markdown(
-    """
-    <div class="hero">
-        <h1>🌙 Mon101</h1>
-        <p>
-            ปฏิทิน • เวลา • จันทรคติ • ราศี • อากาศ • เพลง • หวย
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
-# CURRENT DATE
-# =========================================================
-
-today = datetime.now(BANGKOK_TZ).date()
-
-st.caption(
-    f"วันที่ระบบประเทศไทย: {thai_date_string(today)}"
-)
-
-
-# =========================================================
-# TABS
-# =========================================================
-
-tabs = st.tabs(
-    [
-        "📅 วันที่",
-        "🌙 จันทรคติ",
-        "🐉 นักษัตร / ราศี",
-        "🌍 เวลาโลก",
-        "🌦️ อากาศ",
-        "🗓️ ปฏิทิน",
-        "🔄 เปรียบเทียบวันที่",
-        "🟡 Golden Ratio",
-        "🎵 เพลง",
-        "🎰 หวยรัฐบาล",
-    ]
-)
-
-
-# =========================================================
-# TAB 1 : DATE
-# =========================================================
+tabs = st.tabs([
+    "1 วันที่","2 จันทรคติ","3 นักษัตร / ราศี","4 เวลาโลก","5 อากาศ",
+    "6 ปฏิทิน","7 เปรียบเทียบวันที่","8 Golden Ratio","9 เพลง","10 หวยรัฐบาล"
+])
 
 with tabs[0]:
-    st.subheader("📅 วันที่")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(
-            "วัน",
-            f"{today.day}",
-        )
-
-    with col2:
-        st.metric(
-            "เดือน",
-            THAI_MONTHS[today.month - 1],
-        )
-
-    with col3:
-        st.metric(
-            "พ.ศ.",
-            str(today.year + 543),
-        )
-
-    st.markdown(
-        f"""
-        <div class="info-box">
-            <div class="big-number">
-                {thai_date_string(today)}
-            </div>
-            <div class="small-label">
-                ค.ศ. {today.year}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.write(
-        f"วันในสัปดาห์: **วัน{THAI_DAYS[today.weekday()]}**"
-    )
-
-    st.write(
-        f"วันที่แบบ ISO: **{today.isoformat()}**"
-    )
-
-
-# =========================================================
-# TAB 2 : LUNAR
-# =========================================================
+    st.header("วันที่")
+    st.metric("วันที่วันนี้", thai_date(now))
+    st.write("วัน:", now.strftime("%A"))
+    st.write("เวลา:", now.strftime("%H:%M:%S"))
+    st.write("วันที่สากล:", now.strftime("%Y-%m-%d"))
 
 with tabs[1]:
-    st.subheader("🌙 ปฏิทินจันทรคติไทย")
-
-    lunar_date = get_thai_lunar_date(today)
-
-    if lunar_date is None:
-        st.warning(
-            "ไม่สามารถอ่านข้อมูลจันทรคติจาก PyThaiNLP ได้ "
-            "ตรวจสอบ requirements.txt ว่าติดตั้ง pythainlp แล้ว"
-        )
-    else:
-        st.write("วันที่สากล")
-        st.info(thai_date_string(today))
-
-        st.write("ข้อมูลจันทรคติ")
-
-        st.code(
-            str(lunar_date),
-            language="text",
-        )
-
-        st.caption(
-            "หมายเหตุ: การแปลงนี้เป็นปฏิทินจันทรคติตามข้อมูลของไลบรารี "
-            "ไม่ใช่การสังเกตดวงจันทร์จริง ณ สถานที่"
-        )
-
-
-# =========================================================
-# TAB 3 : ZODIAC
-# =========================================================
+    st.header("จันทรคติ")
+    st.write("วันที่:", thai_date(now))
+    st.info(lunar_date_text(today))
 
 with tabs[2]:
-    st.subheader("🐉 นักษัตรและราศีตะวันตก")
-
-    zodiac_year = today.year
-
-    thai_zodiac = get_thai_zodiac(zodiac_year)
-    western = calculate_western_zodiac(today)
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown(
-            """
-            <div class="info-box">
-                <h3>🐉 นักษัตร</h3>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if thai_zodiac is None:
-            st.warning(
-                "ไม่สามารถอ่านข้อมูลนักษัตรจาก PyThaiNLP ได้"
-            )
-        else:
-            st.markdown(
-                f"""
-                <div class="big-number">
-                    {thai_zodiac}
-                </div>
-                <div class="small-label">
-                    ปี ค.ศ. {zodiac_year}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with col2:
-        st.markdown(
-            """
-            <div class="info-box">
-                <h3>♈ ราศีตะวันตก</h3>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if western is None:
-            st.warning(
-                "ไม่สามารถคำนวณราศีตะวันตกได้ "
-                "ตรวจสอบว่าได้ติดตั้ง ephem แล้ว"
-            )
-        else:
-            st.markdown(
-                f"""
-                <div class="big-number">
-                    {western["thai"]}
-                </div>
-                <div class="small-label">
-                    {western["english"]}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            st.write(
-                f"องศาสุริยวิถี: "
-                f"**{western['longitude']:.4f}°**"
-            )
-
-            st.write(
-                f"องศาภายในราศี: "
-                f"**{western['degree']:.4f}°**"
-            )
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    st.caption(
-        "ราศีตะวันตกในหน้านี้คำนวณจากตำแหน่งดวงอาทิตย์ "
-        "ไม่ใช่การสุ่มหรือคะแนนจำลอง"
-    )
-
-
-# =========================================================
-# TAB 4 : WORLD CLOCK
-# =========================================================
+    st.header("นักษัตร / ราศี")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.subheader("นักษัตรไทย")
+        st.write(thai_zodiac_text(today))
+    with c2:
+        st.subheader("ราศีตะวันตก")
+        western = western_zodiac(today)
+        st.write("ราศี:", western.get("name"))
+        if western.get("degree") is not None:
+            st.write(f"องศาในราศี: {western['degree']:.2f}°")
+            st.write(f"ลองจิจูดดวงอาทิตย์: {western['longitude']:.2f}°")
 
 with tabs[3]:
-    st.subheader("🌍 เวลาโลก")
-
-    cities = {
-        "🇹🇭 กรุงเทพฯ": "Asia/Bangkok",
-        "🇯🇵 โตเกียว": "Asia/Tokyo",
-        "🇰🇷 โซล": "Asia/Seoul",
-        "🇨🇳 เซี่ยงไฮ้": "Asia/Shanghai",
-        "🇸🇬 สิงคโปร์": "Asia/Singapore",
-        "🇮🇳 นิวเดลี": "Asia/Kolkata",
-        "🇦🇪 ดูไบ": "Asia/Dubai",
-        "🇬🇧 ลอนดอน": "Europe/London",
-        "🇫🇷 ปารีส": "Europe/Paris",
-        "🇺🇸 นิวยอร์ก": "America/New_York",
-        "🇺🇸 ลอสแอนเจลิส": "America/Los_Angeles",
-        "🇦🇺 ซิดนีย์": "Australia/Sydney",
+    st.header("เวลาโลก")
+    zones = {
+        "ประเทศไทย":"Asia/Bangkok","ญี่ปุ่น":"Asia/Tokyo","จีน":"Asia/Shanghai",
+        "สิงคโปร์":"Asia/Singapore","อินเดีย":"Asia/Kolkata","อังกฤษ":"Europe/London",
+        "ฝรั่งเศส":"Europe/Paris","นิวยอร์ก":"America/New_York","ลอสแอนเจลิส":"America/Los_Angeles"
     }
-
     cols = st.columns(3)
-
-    now_utc = datetime.now(timezone.utc)
-
-    for index, (city, tz_name) in enumerate(cities.items()):
-        with cols[index % 3]:
-            try:
-                local_time = now_utc.astimezone(
-                    ZoneInfo(tz_name)
-                )
-
-                st.markdown(
-                    f"""
-                    <div class="info-box">
-                        <h4>{city}</h4>
-                        <div class="big-number">
-                            {local_time.strftime("%H:%M")}
-                        </div>
-                        <div class="small-label">
-                            {local_time.strftime("%d/%m/%Y")}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            except Exception:
-                st.error(
-                    f"ไม่สามารถอ่านเขตเวลา {tz_name}"
-                )
-
-
-# =========================================================
-# TAB 5 : WEATHER
-# =========================================================
+    for i, (label, zone_name) in enumerate(zones.items()):
+        local = datetime.now(ZoneInfo(zone_name))
+        with cols[i % 3]:
+            st.metric(label, local.strftime("%H:%M:%S"))
+            st.caption(local.strftime("%Y-%m-%d"))
 
 with tabs[4]:
-    st.subheader("🌦️ สภาพอากาศ")
+    st.header("อากาศ")
+    city = st.text_input("ระบุเมือง", value="Udon Thani", key="weather_city")
+    if st.button("ดูอากาศ", key="weather_button"):
+        try:
+            place = geocode_city(city)
+            if not place:
+                st.error("ไม่พบเมืองนี้")
+            else:
+                data = get_weather(place["latitude"], place["longitude"])
+                current = data.get("current", {})
+                st.subheader(f"{place.get('name', city)}, {place.get('country', '')}")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric("อุณหภูมิ", f"{current.get('temperature_2m','-')} °C")
+                with c2:
+                    st.metric("ความรู้สึก", f"{current.get('apparent_temperature','-')} °C")
+                with c3:
+                    st.metric("ความชื้น", f"{current.get('relative_humidity_2m','-')} %")
+                st.write("สภาพอากาศ:", weather_code_text(current.get("weather_code")))
+                st.write("ลม:", f"{current.get('wind_speed_10m','-')} km/h")
+        except Exception as exc:
+            st.error(f"โหลดข้อมูลอากาศไม่สำเร็จ: {exc}")
 
-    city = st.text_input(
-        "พิมพ์ชื่อเมือง",
-        value="Udon Thani",
-        key="weather_city",
-    )
+with tabs[5]:
+    st.header("ปฏิทิน")
+    selected_date = st.date_input("เลือกวันที่", value=today, key="calendar_date")
+    selected_dt = datetime.combine(selected_date, datetime.min.time(), tzinfo=BANGKOK)
+    st.write("วันที่เลือก:", thai_date(selected_dt))
+    st.write("วัน:", selected_dt.strftime("%A"))
+    st.write("ISO:", selected_date.isoformat())
 
-    if st.button(
-        "🔎 ตรวจอากาศ",
-        key="weather_button",
-    ):
-        if not city.strip():
-            st.warning("กรุณาระบุชื่อเมือง")
+with tabs[6]:
+    st.header("เปรียบเทียบวันที่")
+    c1, c2 = st.columns(2)
+    with c1:
+        date1 = st.date_input("วันที่ 1", value=today, key="compare_date_1")
+    with c2:
+        date2 = st.date_input("วันที่ 2", value=today, key="compare_date_2")
+    difference = (date2 - date1).days
+    st.metric("จำนวนวันต่างกัน", f"{abs(difference):,} วัน")
+    if difference > 0:
+        st.info(f"วันที่ 2 อยู่หลังวันที่ 1 จำนวน {difference:,} วัน")
+    elif difference < 0:
+        st.info(f"วันที่ 2 อยู่ก่อนวันที่ 1 จำนวน {abs(difference):,} วัน")
+    else:
+        st.info("เป็นวันเดียวกัน")
+
+with tabs[7]:
+    st.header("Golden Ratio")
+    st.write("φ (Phi) =", f"{(1 + math.sqrt(5)) / 2:.12f}")
+    c1, c2 = st.columns(2)
+    with c1:
+        a = st.number_input("ค่าที่ 1", value=1.0, format="%.6f", key="golden_a")
+    with c2:
+        b = st.number_input("ค่าที่ 2", value=1.0, format="%.6f", key="golden_b")
+    if b == 0:
+        st.error("ค่าที่ 2 ต้องไม่เป็นศูนย์")
+    else:
+        info = golden_ratio_info(a, b)
+        st.metric("อัตราส่วน", f"{info['ratio']:.8f}")
+        st.write("ความต่างจาก φ:", f"{info['difference']:.8f}")
+        st.write("ความต่างเชิงเปอร์เซ็นต์:", f"{info['percent_difference']:.4f}%")
+
+with tabs[8]:
+    st.header("เพลง")
+    music_files = discover_music()
+    if not music_files:
+        st.warning("ยังไม่พบไฟล์เพลง กรุณาวางไฟล์ .mp3/.wav/.ogg/.m4a/.aac ไว้ในโฟลเดอร์เดียวกับ app.py")
+    else:
+        st.success(f"พบเพลง {len(music_files)} ไฟล์")
+        for path in music_files:
+            st.write(f"🎵 {os.path.basename(path)}")
+            with open(path, "rb") as audio_file:
+                st.audio(audio_file.read())
+
+with tabs[9]:
+    st.header("หวยรัฐบาล")
+    st.warning("ข้อมูลหวยย้อนหลังควรใช้ข้อมูลจากสำนักงานสลากกินแบ่งรัฐบาล และไม่ควรใช้สถิติย้อนหลังเป็นการทำนายงวดถัดไป")
+    if st.button("ดึงผลล่าสุดจาก GLO", key="lottery_button"):
+        result = lottery_api()
+        if isinstance(result, dict) and result.get("error"):
+            st.error(f"ดึงข้อมูลไม่สำเร็จ: {result['error']}")
         else:
-            with st.spinner("กำลังค้นหาสถานที่..."):
-                try:
-                    location = geocode_city(city)
+            st.json(result)
+    st.subheader("หมายเหตุเรื่องย้อนหลัง 12 ปี")
+    st.write("ส่วนนี้เตรียมพื้นที่สำหรับข้อมูลผลสลากย้อนหลัง แต่จะไม่สร้างข้อมูลขึ้นมาเอง หากแหล่งข้อมูลที่เชื่อถือได้ไม่ส่งข้อมูลมา")
 
-                    if location is None:
-                        st.error(
-                            "ไม่พบสถานที่นี้"
-                        )
-                    else:
-                        weather = get_weather(
-                            location["latitude"],
-                            location["longitude"],
-                        )
-
-                        current = weather.get(
-                            "current",
-                            {},
-                        )
-
-                        code = current.get(
-                            "weather_code"
-                        )
-
-                        description = THAI_WEATHER.get(
-                            code,
-                            f"รหัสสภาพอากาศ {code}",
-                        )
-
-                        st.success(
-                            f"{location['name']}, "
-                            f"{location['country']}"
-                        )
-
-                        c1, c2, c3 = st.columns(3)
-
-                        with c1:
-                            st.metric(
-                                "อุณหภูมิ",
-                                f"{current.get('temperature_2m', '-') } °C",
-                            )
-
-                        with c2:
-                            st.metric(
-                                "ความรู้สึก",
-                                f"{current.get('apparent_temperature', '-') } °C",
-                            )
-
-                        with c3:
-                            st.metric(
-                                "ความชื้น",
-                                f"{current.get('relative_humidity_2m', '-')} %",
-                            )
-
-                        st.info(
-                            f"สภาพอากาศ: **{description}**"
-                        )
-
-                        st.write(
-                            "ฝนขณะนี้: "
-                            f"**{current.get('precipitation', '-')} mm**"
-                        )
-
-                        st.write(
-                            "ความเร็วลม: "
-                            f"**{current.get('wind_speed_10m', '-')} km/h**"
-                        )
+st.divider()
+st.caption(f"Mon101 • {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
