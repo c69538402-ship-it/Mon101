@@ -1,4 +1,3 @@
-
 import os
 import math
 from datetime import date, datetime, timedelta, timezone
@@ -10,7 +9,7 @@ import streamlit as st
 
 # Optional libraries
 try:
-    import ephem
+import ephem    
 except Exception:
     ephem = None
 
