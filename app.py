@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import requests
+import pandas as pd
 import streamlit as st
 import ephem
 
@@ -116,11 +117,6 @@ thai_months = {
 # =========================================================
 
 def get_thai_lunar_date(date_obj):
-    """
-    แปลงวันที่สากลเป็นวันที่จันทรคติไทย
-    โดยใช้ PyThaiNLP
-    """
-
     try:
         return to_lunar_date(date_obj)
 
@@ -136,10 +132,6 @@ def get_thai_lunar_date(date_obj):
 # =========================================================
 
 def get_thai_zodiac(year):
-    """
-    นักษัตรไทยจากปี ค.ศ.
-    """
-
     try:
         return th_zodiac(year, output_type=1)
 
@@ -168,13 +160,8 @@ western_zodiac = [
 
 
 def get_western_zodiac(date_obj):
-    """
-    คำนวณราศีจากตำแหน่งดวงอาทิตย์
-    โดยใช้ PyEphem แทนการกำหนดช่วงวันที่ตายตัว
-    """
-
     try:
-        # ใช้เวลาเที่ยงของประเทศไทยเป็นจุดอ้างอิง
+
         bangkok = ZoneInfo("Asia/Bangkok")
 
         local_dt = datetime(
@@ -187,16 +174,18 @@ def get_western_zodiac(date_obj):
             tzinfo=bangkok
         )
 
-        # แปลงเป็น UTC
-        utc_dt = local_dt.astimezone(timezone.utc).replace(tzinfo=None)
+        utc_dt = local_dt.astimezone(
+            timezone.utc
+        ).replace(tzinfo=None)
 
-        # คำนวณตำแหน่งดวงอาทิตย์
         sun = ephem.Sun(utc_dt)
 
-        # แปลงเป็นพิกัดสุริยวิถี
         ecliptic = ephem.Ecliptic(sun)
 
-        longitude_deg = math.degrees(float(ecliptic.lon))
+        longitude_deg = math.degrees(
+            float(ecliptic.lon)
+        )
+
         longitude_deg %= 360
 
         index = int(longitude_deg // 30)
@@ -213,6 +202,7 @@ def get_western_zodiac(date_obj):
         }
 
     except Exception as e:
+
         return {
             "thai": "ไม่ทราบ",
             "english": "Unknown",
@@ -223,7 +213,7 @@ def get_western_zodiac(date_obj):
 
 
 # =========================================================
-# BUDDHIST / CHRISTIAN ERA
+# BE / CE
 # =========================================================
 
 def get_be_ce(date_obj):
@@ -250,16 +240,26 @@ def golden_ratio_info(date_obj):
 
     total_days = (end - start).days
 
-    day_number = (date_obj - start).days + 1
+    day_number = (
+        date_obj - start
+    ).days + 1
 
-    # จุดแบ่ง Golden Section
-    golden_position = total_days / PHI
+    golden_position = (
+        total_days / PHI
+    )
 
-    distance = abs(day_number - golden_position)
+    distance = abs(
+        day_number - golden_position
+    )
 
-    nearest_day = round(golden_position)
+    nearest_day = round(
+        golden_position
+    )
 
-    golden_date = start + timedelta(days=nearest_day - 1)
+    golden_date = (
+        start
+        + timedelta(days=nearest_day - 1)
+    )
 
     return {
         "phi": PHI,
@@ -280,7 +280,9 @@ def get_weather(city):
 
     try:
 
-        geo_url = "https://geocoding-api.open-meteo.com/v1/search"
+        geo_url = (
+            "https://geocoding-api.open-meteo.com/v1/search"
+        )
 
         geo_params = {
             "name": city,
@@ -307,7 +309,9 @@ def get_weather(city):
         latitude = location["latitude"]
         longitude = location["longitude"]
 
-        weather_url = "https://api.open-meteo.com/v1/forecast"
+        weather_url = (
+            "https://api.open-meteo.com/v1/forecast"
+        )
 
         weather_params = {
             "latitude": latitude,
@@ -335,10 +339,14 @@ def get_weather(city):
 
         return {
             "location": location,
-            "current": weather_data.get("current", {}),
+            "current": weather_data.get(
+                "current",
+                {}
+            ),
         }
 
     except Exception as e:
+
         return {
             "error": str(e)
         }
@@ -370,7 +378,10 @@ def weather_description(code):
         99: "พายุฝนฟ้าคะนองและลูกเห็บหนัก",
     }
 
-    return weather_codes.get(code, "ไม่ทราบสภาพอากาศ")
+    return weather_codes.get(
+        code,
+        "ไม่ทราบสภาพอากาศ"
+    )
 
 
 # =========================================================
@@ -390,20 +401,414 @@ def get_music_files():
     files = []
 
     try:
+
         for filename in os.listdir(APP_DIR):
 
-            full_path = os.path.join(APP_DIR, filename)
+            full_path = os.path.join(
+                APP_DIR,
+                filename
+            )
 
             if (
                 os.path.isfile(full_path)
-                and filename.lower().endswith(extensions)
+                and filename.lower().endswith(
+                    extensions
+                )
             ):
                 files.append(filename)
 
     except Exception:
         pass
 
-    return sorted(files, key=str.lower)
+    return sorted(
+        files,
+        key=str.lower
+    )
+
+
+# =========================================================
+# LOTTERY - GLO
+# =========================================================
+
+GLO_API_URL = (
+    "https://www.glo.or.th/api/lottery/getLotteryResult"
+)
+
+
+def normalize_lottery_number(value):
+
+    if value is None:
+        return ""
+
+    value = str(value).strip()
+
+    return value
+
+
+def extract_numbers(obj):
+
+    results = []
+
+    if obj is None:
+        return results
+
+    if isinstance(obj, list):
+
+        for item in obj:
+            results.extend(
+                extract_numbers(item)
+            )
+
+    elif isinstance(obj, dict):
+
+        for key in [
+            "number",
+            "numbers",
+            "lottery_number",
+            "lottery_numbers",
+            "value",
+        ]:
+
+            if key in obj:
+
+                results.extend(
+                    extract_numbers(
+                        obj[key]
+                    )
+                )
+
+    elif isinstance(obj, str):
+
+        text = obj.strip()
+
+        if text:
+            results.append(text)
+
+    elif isinstance(obj, int):
+
+        results.append(
+            str(obj)
+        )
+
+    return results
+
+
+def find_prize_numbers(
+    data,
+    keywords
+):
+
+    found = []
+
+    def walk(obj):
+
+        if isinstance(obj, dict):
+
+            label_parts = []
+
+            for key in [
+                "name",
+                "title",
+                "label",
+                "lottery_type",
+                "reward_type",
+                "type",
+                "description",
+            ]:
+
+                if key in obj:
+
+                    label_parts.append(
+                        str(
+                            obj[key]
+                        ).lower()
+                    )
+
+            label = " ".join(
+                label_parts
+            )
+
+            if any(
+                keyword.lower() in label
+                for keyword in keywords
+            ):
+
+                for key in [
+                    "number",
+                    "numbers",
+                    "lottery_number",
+                    "lottery_numbers",
+                    "value",
+                    "result",
+                ]:
+
+                    if key in obj:
+
+                        nums = extract_numbers(
+                            obj[key]
+                        )
+
+                        found.extend(
+                            nums
+                        )
+
+            for value in obj.values():
+                walk(value)
+
+        elif isinstance(obj, list):
+
+            for item in obj:
+                walk(item)
+
+    walk(data)
+
+    unique = []
+
+    for number in found:
+
+        number = normalize_lottery_number(
+            number
+        )
+
+        if (
+            number
+            and number not in unique
+        ):
+            unique.append(number)
+
+    return unique
+
+
+@st.cache_data(ttl=86400)
+def get_lottery_by_date(
+    draw_date
+):
+
+    date_string = draw_date.strftime(
+        "%Y-%m-%d"
+    )
+
+    try:
+
+        response = requests.get(
+            GLO_API_URL,
+            params={
+                "date": date_string
+            },
+            timeout=15,
+            headers={
+                "User-Agent": "Mon101/1.0"
+            }
+        )
+
+        response.raise_for_status()
+
+        return response.json()
+
+    except Exception as e:
+
+        return {
+            "_error": str(e),
+            "_date": date_string
+        }
+
+
+def parse_lottery_result(
+    data,
+    draw_date
+):
+
+    if not data:
+        return None
+
+    if isinstance(data, dict):
+
+        if "_error" in data:
+
+            return {
+                "วันที่": draw_date,
+                "รางวัลที่ 1": "",
+                "เลขหน้า 3 ตัว": "",
+                "เลขท้าย 3 ตัว": "",
+                "เลขท้าย 2 ตัว": "",
+                "_error": data["_error"],
+            }
+
+    first_prize = find_prize_numbers(
+        data,
+        [
+            "รางวัลที่ 1",
+            "รางวัลที่หนึ่ง",
+            "first prize",
+        ]
+    )
+
+    front_three = find_prize_numbers(
+        data,
+        [
+            "เลขหน้า 3 ตัว",
+            "เลขหน้า3ตัว",
+            "front 3",
+        ]
+    )
+
+    last_three = find_prize_numbers(
+        data,
+        [
+            "เลขท้าย 3 ตัว",
+            "เลขท้าย3ตัว",
+            "last 3",
+        ]
+    )
+
+    last_two = find_prize_numbers(
+        data,
+        [
+            "เลขท้าย 2 ตัว",
+            "เลขท้าย2ตัว",
+            "last 2",
+        ]
+    )
+
+    return {
+        "วันที่": draw_date,
+        "รางวัลที่ 1": " ".join(
+            first_prize
+        ),
+        "เลขหน้า 3 ตัว": " ".join(
+            front_three
+        ),
+        "เลขท้าย 3 ตัว": " ".join(
+            last_three
+        ),
+        "เลขท้าย 2 ตัว": " ".join(
+            last_two
+        ),
+    }
+
+
+def generate_possible_draw_dates(
+    year
+):
+
+    dates = []
+
+    for month in range(1, 13):
+
+        dates.append(
+            date(
+                year,
+                month,
+                1
+            )
+        )
+
+        dates.append(
+            date(
+                year,
+                month,
+                16
+            )
+        )
+
+    return dates
+
+
+def get_lottery_year(year):
+
+    rows = []
+
+    possible_dates = (
+        generate_possible_draw_dates(
+            year
+        )
+    )
+
+    progress = st.progress(
+        0,
+        text=(
+            f"กำลังตรวจสอบข้อมูลปี "
+            f"{year + 543}"
+        )
+    )
+
+    total = len(
+        possible_dates
+    )
+
+    for index, draw_date in enumerate(
+        possible_dates
+    ):
+
+        data = get_lottery_by_date(
+            draw_date
+        )
+
+        result = parse_lottery_result(
+            data,
+            draw_date
+        )
+
+        if result:
+
+            if (
+                result.get(
+                    "รางวัลที่ 1"
+                )
+                or result.get(
+                    "เลขท้าย 2 ตัว"
+                )
+                or result.get(
+                    "เลขหน้า 3 ตัว"
+                )
+                or result.get(
+                    "เลขท้าย 3 ตัว"
+                )
+            ):
+
+                rows.append(
+                    result
+                )
+
+        progress.progress(
+            int(
+                (
+                    (index + 1)
+                    / total
+                ) * 100
+            ),
+            text=(
+                f"กำลังตรวจสอบ "
+                f"{draw_date.strftime('%d/%m/%Y')}"
+            )
+        )
+
+    progress.empty()
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(
+        rows
+    )
+
+    df = df.sort_values(
+        "วันที่",
+        ascending=False
+    )
+
+    df["วันที่"] = df[
+        "วันที่"
+    ].apply(
+        lambda x:
+        x.strftime(
+            "%d/%m/%Y"
+        )
+    )
+
+    return df.reset_index(
+        drop=True
+    )
 
 
 # =========================================================
@@ -418,7 +823,10 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="sub-title">ปฏิทิน • จันทรคติ • นักษัตร • ดาราศาสตร์ • เวลา • อากาศ • เพลง</div>',
+    '<div class="sub-title">'
+    'ปฏิทิน • จันทรคติ • นักษัตร • '
+    'ดาราศาสตร์ • เวลา • อากาศ • หวย • เพลง'
+    '</div>',
     unsafe_allow_html=True
 )
 
@@ -439,37 +847,53 @@ selected_date = st.date_input(
 # TABS
 # =========================================================
 
-tabs = st.tabs([
-    "📅 วันที่",
-    "🌙 จันทรคติ",
-    "🐉 นักษัตร / ราศี",
-    "🌍 เวลาโลก",
-    "🌦️ อากาศ",
-    "🗓️ ปฏิทิน",
-    "🔄 เปรียบเทียบวันที่",
-    "🟡 Golden Ratio",
-    "🎵 เพลง",
-])
+tabs = st.tabs(
+    [
+        "📅 วันที่",
+        "🌙 จันทรคติ",
+        "🐉 นักษัตร / ราศี",
+        "🌍 เวลาโลก",
+        "🌦️ อากาศ",
+        "🗓️ ปฏิทิน",
+        "🔄 เปรียบเทียบวันที่",
+        "🟡 Golden Ratio",
+        "🎵 เพลง",
+        "🎰 หวยรัฐบาล",
+    ]
+)
 
 
 # =========================================================
-# TAB 1 : DATE
+# TAB 1
 # =========================================================
 
 with tabs[0]:
 
-    ce, be = get_be_ce(selected_date)
+    ce, be = get_be_ce(
+        selected_date
+    )
 
-    weekday = thai_weekdays[selected_date.weekday()]
-    month_name = thai_months[selected_date.month]
+    weekday = thai_weekdays[
+        selected_date.weekday()
+    ]
+
+    month_name = thai_months[
+        selected_date.month
+    ]
 
     st.markdown(
         f"""
         <div class="info-box">
             <div class="big-number">
-                {selected_date.day} {month_name} {be}
+                {selected_date.day}
+                {month_name}
+                {be}
             </div>
-            <div style="text-align:center;font-size:20px;">
+
+            <div style="
+                text-align:center;
+                font-size:20px;
+            ">
                 {weekday}
             </div>
         </div>
@@ -477,13 +901,21 @@ with tabs[0]:
         unsafe_allow_html=True
     )
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns(
+        3
+    )
 
     with col1:
-        st.metric("ค.ศ.", ce)
+        st.metric(
+            "ค.ศ.",
+            ce
+        )
 
     with col2:
-        st.metric("พ.ศ.", be)
+        st.metric(
+            "พ.ศ.",
+            be
+        )
 
     with col3:
         st.metric(
@@ -493,19 +925,29 @@ with tabs[0]:
 
 
 # =========================================================
-# TAB 2 : THAI LUNAR
+# TAB 2
 # =========================================================
 
 with tabs[1]:
 
-    st.subheader("🌙 ปฏิทินจันทรคติไทย")
+    st.subheader(
+        "🌙 ปฏิทินจันทรคติไทย"
+    )
 
-    lunar_date = get_thai_lunar_date(selected_date)
+    lunar_date = (
+        get_thai_lunar_date(
+            selected_date
+        )
+    )
 
     st.markdown(
         f"""
         <div class="info-box">
-            <div style="font-size:30px;font-weight:700;text-align:center;">
+            <div style="
+                font-size:30px;
+                font-weight:700;
+                text-align:center;
+            ">
                 {lunar_date}
             </div>
         </div>
@@ -514,26 +956,34 @@ with tabs[1]:
     )
 
     st.info(
-        "ส่วนนี้ไม่ได้ใช้สูตรจำลองรอบดวงจันทร์แบบกำหนดเอง "
-        "แต่ใช้ตัวแปลงปฏิทินจันทรคติไทยจาก PyThaiNLP"
+        "คำนวณจากระบบปฏิทินจันทรคติไทย "
+        "ผ่าน PyThaiNLP ไม่ใช้สูตรจำลองรอบดวงจันทร์"
     )
 
 
 # =========================================================
-# TAB 3 : ZODIAC
+# TAB 3
 # =========================================================
 
 with tabs[2]:
 
-    st.subheader("🐉 นักษัตรและราศี")
+    st.subheader(
+        "🐉 นักษัตรและราศี"
+    )
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(
+        2
+    )
 
     with col1:
 
-        st.markdown("### 🐉 นักษัตร")
+        st.markdown(
+            "### 🐉 นักษัตร"
+        )
 
-        zodiac = get_thai_zodiac(selected_date.year)
+        zodiac = get_thai_zodiac(
+            selected_date.year
+        )
 
         st.markdown(
             f"""
@@ -541,8 +991,12 @@ with tabs[2]:
                 <div class="big-number">
                     {zodiac}
                 </div>
-                <div style="text-align:center;">
-                    ปี ค.ศ. {selected_date.year}
+
+                <div style="
+                    text-align:center;
+                ">
+                    ปี ค.ศ.
+                    {selected_date.year}
                 </div>
             </div>
             """,
@@ -550,14 +1004,21 @@ with tabs[2]:
         )
 
         st.caption(
-            "นักษัตรส่วนนี้อ้างอิงปี ค.ศ. ตามฟังก์ชัน Thai Zodiac ของ PyThaiNLP"
+            "ใช้ฟังก์ชัน Thai Zodiac "
+            "ของ PyThaiNLP"
         )
 
     with col2:
 
-        st.markdown("### ☀️ ราศีตะวันตก")
+        st.markdown(
+            "### ☀️ ราศีตะวันตก"
+        )
 
-        western = get_western_zodiac(selected_date)
+        western = (
+            get_western_zodiac(
+                selected_date
+            )
+        )
 
         st.markdown(
             f"""
@@ -565,352 +1026,10 @@ with tabs[2]:
                 <div class="big-number">
                     {western["thai"]}
                 </div>
-                <div style="text-align:center;font-size:20px;">
+
+                <div style="
+                    text-align:center;
+                    font-size:20px;
+                ">
                     {western["english"]}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        if western["degree"] is not None:
-
-            st.write(
-                f"ตำแหน่งดวงอาทิตย์ประมาณ "
-                f"{western['degree']:.2f}° "
-                f"ภายในราศี"
-            )
-
-            st.caption(
-                f"Ecliptic longitude ≈ {western['longitude']:.4f}°"
-            )
-
-
-# =========================================================
-# TAB 4 : WORLD TIME
-# =========================================================
-
-with tabs[3]:
-
-    st.subheader("🌍 เวลาท้องถิ่นของอุปกรณ์")
-
-    st.info(
-        "เวลาส่วนนี้อ่านจากเวลาของอุปกรณ์/เบราว์เซอร์ของคุณ "
-        "จึงไม่ใช่เวลาที่จำลองขึ้นจากค่าเริ่มต้นของโปรแกรม"
-    )
-
-    st.components.v1.html(
-        """
-        <div id="clock"
-             style="
-                font-size:42px;
-                font-weight:bold;
-                text-align:center;
-                padding:30px;
-             ">
-        </div>
-
-        <div id="zone"
-             style="
-                text-align:center;
-                font-size:18px;
-                opacity:0.7;
-             ">
-        </div>
-
-        <script>
-
-        function updateClock() {
-
-            const now = new Date();
-
-            document.getElementById("clock").innerHTML =
-                now.toLocaleString("th-TH", {
-                    weekday: "long",
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    second: "2-digit"
-                });
-
-            document.getElementById("zone").innerHTML =
-                "Timezone: " +
-                Intl.DateTimeFormat().resolvedOptions().timeZone;
-        }
-
-        updateClock();
-
-        setInterval(updateClock, 1000);
-
-        </script>
-        """,
-        height=150
-    )
-
-
-# =========================================================
-# TAB 5 : WEATHER
-# =========================================================
-
-with tabs[4]:
-
-    st.subheader("🌦️ สภาพอากาศ")
-
-    city = st.text_input(
-        "ค้นหาเมือง",
-        value="อุดรธานี"
-    )
-
-    if st.button("🔍 ตรวจสอบอากาศ"):
-
-        weather = get_weather(city)
-
-        if weather is None:
-
-            st.warning("ไม่พบเมืองที่ค้นหา")
-
-        elif "error" in weather:
-
-            st.error(
-                f"เกิดข้อผิดพลาด: {weather['error']}"
-            )
-
-        else:
-
-            location = weather["location"]
-            current = weather["current"]
-
-            st.success(
-                f"{location.get('name', city)}, "
-                f"{location.get('country', '')}"
-            )
-
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                st.metric(
-                    "อุณหภูมิ",
-                    f"{current.get('temperature_2m', '-')}"
-                    f" {current.get('units', {}).get('temperature_2m', '°C')}"
-                )
-
-            with col2:
-                st.metric(
-                    "ความชื้น",
-                    f"{current.get('relative_humidity_2m', '-')}%"
-                )
-
-            with col3:
-                st.metric(
-                    "ลม",
-                    f"{current.get('wind_speed_10m', '-')} km/h"
-                )
-
-            code = current.get("weather_code")
-
-            st.write(
-                f"**สภาพอากาศ:** {weather_description(code)}"
-            )
-
-            st.write(
-                f"อุณหภูมิที่รู้สึกได้: "
-                f"{current.get('apparent_temperature', '-')} °C"
-            )
-
-
-# =========================================================
-# TAB 6 : CALENDAR
-# =========================================================
-
-with tabs[5]:
-
-    st.subheader("🗓️ ปฏิทินรายเดือน")
-
-    year = st.number_input(
-        "ปี ค.ศ.",
-        min_value=1,
-        max_value=9999,
-        value=selected_date.year,
-        step=1
-    )
-
-    month = st.number_input(
-        "เดือน",
-        min_value=1,
-        max_value=12,
-        value=selected_date.month,
-        step=1
-    )
-
-    cal = calendar.month(
-        int(year),
-        int(month)
-    )
-
-    st.code(
-        cal,
-        language=None
-    )
-
-
-# =========================================================
-# TAB 7 : COMPARE DATES
-# =========================================================
-
-with tabs[6]:
-
-    st.subheader("🔄 เปรียบเทียบวันที่")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        date_a = st.date_input(
-            "วันที่ A",
-            value=selected_date,
-            key="date_a"
-        )
-
-    with col2:
-
-        date_b = st.date_input(
-            "วันที่ B",
-            value=today,
-            key="date_b"
-        )
-
-    difference = abs(
-        (date_b - date_a).days
-    )
-
-    st.markdown(
-        f"""
-        <div class="info-box">
-            <div class="big-number">
-                {difference:,}
-            </div>
-            <div style="text-align:center;font-size:20px;">
-                วัน
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# =========================================================
-# TAB 8 : GOLDEN RATIO
-# =========================================================
-
-with tabs[7]:
-
-    st.subheader("🟡 Golden Ratio")
-
-    info = golden_ratio_info(selected_date)
-
-    st.write(
-        f"ค่า Golden Ratio (φ) = **{info['phi']:.12f}**"
-    )
-
-    st.write(
-        f"ปีนี้มี **{info['total_days']} วัน**"
-    )
-
-    st.write(
-        f"วันที่เลือกคือวันที่ **{info['day_number']}** ของปี"
-    )
-
-    st.write(
-        f"ตำแหน่ง Golden Section ของปี ≈ "
-        f"วันที่ {info['golden_position']:.2f}"
-    )
-
-    st.write(
-        f"วันที่ใกล้จุด Golden Section ที่สุดคือ "
-        f"**{info['golden_date'].strftime('%d/%m/%Y')}**"
-    )
-
-    st.write(
-        f"วันที่เลือกห่างจากจุดนั้นประมาณ "
-        f"**{info['distance']:.2f} วัน**"
-    )
-
-    st.info(
-        "ส่วนนี้เป็นคณิตศาสตร์ของ Golden Ratio เท่านั้น "
-        "ไม่ได้ตีความเป็นพลังงาน โชค หรือคะแนนชีวิต"
-    )
-
-
-# =========================================================
-# TAB 9 : MUSIC
-# =========================================================
-
-with tabs[8]:
-
-    st.subheader("🎵 เครื่องเล่นเพลง")
-
-    st.write(
-        "วางไฟล์เพลงไว้ในโฟลเดอร์เดียวกับ app.py"
-    )
-
-    st.code(
-        """
-Mon101/
-├── app.py
-├── logo.jpg
-├── requirements.txt
-├── README.md
-├── 4ทิศ.mp3
-├── เพลงของฉัน.mp3
-└── เพลงอีกเพลง.mp3
-        """,
-        language=None
-    )
-
-    if st.button("🔄 สแกนเพลงใหม่"):
-
-        st.rerun()
-
-    music_files = get_music_files()
-
-    if not music_files:
-
-        st.warning(
-            "ยังไม่พบไฟล์เพลงในโฟลเดอร์เดียวกับ app.py"
-        )
-
-    else:
-
-        st.success(
-            f"พบเพลง {len(music_files)} ไฟล์"
-        )
-
-        song_options = {
-            os.path.splitext(filename)[0]: filename
-            for filename in music_files
-        }
-
-        selected_song_name = st.selectbox(
-            "เลือกเพลง",
-            list(song_options.keys())
-        )
-
-        selected_song = song_options[selected_song_name]
-
-        song_path = os.path.join(
-            APP_DIR,
-            selected_song
-        )
-
-        st.markdown(
-            f"### 🎶 {selected_song_name}"
-        )
-
-        st.audio(song_path)
-
-
-# =========================================================
-# FOOTER
-# ========================================================
+                
