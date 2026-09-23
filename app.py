@@ -1,19 +1,26 @@
-```python
-from datetime import date, datetime, timedelta
-import calendar
 import os
+import math
+import calendar
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
 import requests
 import streamlit as st
+import ephem
+
+from pythainlp.util import to_lunar_date, th_zodiac
 
 
 # =========================================================
-# ตั้งค่าหน้าเว็บ
+# CONFIG
 # =========================================================
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 st.set_page_config(
-    page_title="แอปปฏิทินอเนกประสงค์",
+    page_title="Mon101",
     page_icon="📅",
-    layout="wide",
+    layout="wide"
 )
 
 
@@ -25,52 +32,70 @@ st.markdown(
     """
     <style>
     .main-title {
-        font-size: 32px;
-        font-weight: bold;
+        font-size: 42px;
+        font-weight: 800;
+        text-align: center;
         margin-bottom: 5px;
     }
 
     .sub-title {
-        color: #666;
-        margin-bottom: 20px;
+        text-align: center;
+        font-size: 18px;
+        opacity: 0.75;
+        margin-bottom: 25px;
     }
 
-    .music-box {
-        padding: 15px;
+    .big-number {
+        font-size: 38px;
+        font-weight: 700;
+        text-align: center;
+    }
+
+    .info-box {
+        padding: 18px;
+        border-radius: 15px;
+        border: 1px solid rgba(128,128,128,0.25);
+        margin-bottom: 15px;
+    }
+
+    .song-box {
+        padding: 12px;
         border-radius: 12px;
-        border: 1px solid #ddd;
-        margin-bottom: 10px;
+        border: 1px solid rgba(128,128,128,0.25);
+        margin-bottom: 8px;
     }
     </style>
     """,
-    unsafe_allow_html=True,
+    unsafe_allow_html=True
 )
 
 
 # =========================================================
-# โลโก้
+# LOGO
 # =========================================================
 
 def show_logo():
-    if os.path.exists("logo.jpg"):
-        st.image("logo.jpg", width=80)
+    logo_path = os.path.join(APP_DIR, "logo.jpg")
+
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=180)
 
 
 # =========================================================
-# วัน / เดือน ภาษาไทย
+# THAI DATE
 # =========================================================
 
-days_th = {
-    "Monday": "วันจันทร์",
-    "Tuesday": "วันอังคาร",
-    "Wednesday": "วันพุธ",
-    "Thursday": "วันพฤหัสบดี",
-    "Friday": "วันศุกร์",
-    "Saturday": "วันเสาร์",
-    "Sunday": "วันอาทิตย์",
+thai_weekdays = {
+    0: "วันจันทร์",
+    1: "วันอังคาร",
+    2: "วันพุธ",
+    3: "วันพฤหัสบดี",
+    4: "วันศุกร์",
+    5: "วันเสาร์",
+    6: "วันอาทิตย์",
 }
 
-months_th = {
+thai_months = {
     1: "มกราคม",
     2: "กุมภาพันธ์",
     3: "มีนาคม",
@@ -87,794 +112,805 @@ months_th = {
 
 
 # =========================================================
-# ปีนักษัตร
+# THAI LUNAR CALENDAR
 # =========================================================
 
-naksat_list = [
-    "ปีชวด (หนู)",
-    "ปีฉลู (วัว)",
-    "ปีขาล (เสือ)",
-    "ปีเถาะ (กระต่าย)",
-    "ปีมะโรง (งูใหญ่)",
-    "ปีมะเส็ง (งูเล็ก)",
-    "ปีมะเมีย (ม้า)",
-    "ปีมะแม (แพะ)",
-    "ปีวอก (ลิง)",
-    "ปีระกา (ไก่)",
-    "ปีจอ (สุนัข)",
-    "ปีกุน (หมู)",
+def get_thai_lunar_date(date_obj):
+    """
+    แปลงวันที่สากลเป็นวันที่จันทรคติไทย
+    โดยใช้ PyThaiNLP
+    """
+
+    try:
+        return to_lunar_date(date_obj)
+
+    except (ValueError, NotImplementedError) as e:
+        return f"ไม่สามารถคำนวณวันจันทรคติสำหรับวันที่นี้ได้: {e}"
+
+    except Exception as e:
+        return f"เกิดข้อผิดพลาดในการคำนวณวันจันทรคติ: {e}"
+
+
+# =========================================================
+# THAI ZODIAC
+# =========================================================
+
+def get_thai_zodiac(year):
+    """
+    นักษัตรไทยจากปี ค.ศ.
+    """
+
+    try:
+        return th_zodiac(year, output_type=1)
+
+    except Exception as e:
+        return f"ไม่สามารถคำนวณนักษัตรได้: {e}"
+
+
+# =========================================================
+# WESTERN ZODIAC
+# =========================================================
+
+western_zodiac = [
+    ("เมษ", "Aries"),
+    ("พฤษภ", "Taurus"),
+    ("เมถุน", "Gemini"),
+    ("กรกฎ", "Cancer"),
+    ("สิงห์", "Leo"),
+    ("กันย์", "Virgo"),
+    ("ตุลย์", "Libra"),
+    ("พิจิก", "Scorpio"),
+    ("ธนู", "Sagittarius"),
+    ("มังกร", "Capricorn"),
+    ("กุมภ์", "Aquarius"),
+    ("มีน", "Pisces"),
 ]
 
 
-def get_naksat(buddhist_year):
+def get_western_zodiac(date_obj):
     """
-    คำนวณปีนักษัตรจาก พ.ศ.
-    หมายเหตุ: ใช้รอบ 12 ปี ไม่ใช่การคำนวณวันขึ้นปีใหม่จีนแบบละเอียด
-    """
-    base_year = 2503
-    index = (buddhist_year - base_year) % 12
-    return naksat_list[index]
-
-
-# =========================================================
-# ราศีสากล
-# =========================================================
-
-def get_zodiac(day, month):
-
-    zodiac_ranges = [
-        ((1, 20), (2, 18), "ราศีกุมภ์ (Aquarius)"),
-        ((2, 19), (3, 20), "ราศีมีน (Pisces)"),
-        ((3, 21), (4, 19), "ราศีเมษ (Aries)"),
-        ((4, 20), (5, 20), "ราศีพฤษภ (Taurus)"),
-        ((5, 21), (6, 20), "ราศีเมถุน (Gemini)"),
-        ((6, 21), (7, 22), "ราศีกรกฎ (Cancer)"),
-        ((7, 23), (8, 22), "ราศีสิงห์ (Leo)"),
-        ((8, 23), (9, 22), "ราศีกันย์ (Virgo)"),
-        ((9, 23), (10, 22), "ราศีตุลย์ (Libra)"),
-        ((10, 23), (11, 21), "ราศีพิจิก (Scorpio)"),
-        ((11, 22), (12, 21), "ราศีธนู (Sagittarius)"),
-    ]
-
-    for (sm, sd), (em, ed), name in zodiac_ranges:
-
-        if (
-            (month == sm and day >= sd)
-            or
-            (month == em and day <= ed)
-        ):
-            return name
-
-    return "ราศีมังกร (Capricorn)"
-
-
-# =========================================================
-# ข้างขึ้น / ข้างแรม
-# =========================================================
-
-def get_lunar_phase(date_obj):
-    """
-    เวอร์ชันนี้ยังเป็นการประมาณจากรอบจันทร์ 29.53 วัน
-    ไม่ใช่ข้อมูลจันทรคติจริง
+    คำนวณราศีจากตำแหน่งดวงอาทิตย์
+    โดยใช้ PyEphem แทนการกำหนดช่วงวันที่ตายตัว
     """
 
-    known_new_moon = date(2026, 1, 18)
+    try:
+        # ใช้เวลาเที่ยงของประเทศไทยเป็นจุดอ้างอิง
+        bangkok = ZoneInfo("Asia/Bangkok")
 
-    diff = (date_obj - known_new_moon).days
+        local_dt = datetime(
+            date_obj.year,
+            date_obj.month,
+            date_obj.day,
+            12,
+            0,
+            0,
+            tzinfo=bangkok
+        )
 
-    phase_day = diff % 29.530588
+        # แปลงเป็น UTC
+        utc_dt = local_dt.astimezone(timezone.utc).replace(tzinfo=None)
 
-    if phase_day < 1:
-        return "🌑 เดือนมืด / New Moon"
+        # คำนวณตำแหน่งดวงอาทิตย์
+        sun = ephem.Sun(utc_dt)
 
-    elif phase_day < 7.4:
-        return f"🌒 ข้างขึ้น ประมาณ {int(phase_day)} ค่ำ"
+        # แปลงเป็นพิกัดสุริยวิถี
+        ecliptic = ephem.Ecliptic(sun)
 
-    elif phase_day < 8.4:
-        return "🌓 ประมาณ 8 ค่ำ / First Quarter"
+        longitude_deg = math.degrees(float(ecliptic.lon))
+        longitude_deg %= 360
 
-    elif phase_day < 14.8:
-        return f"🌔 ข้างขึ้น ประมาณ {int(phase_day)} ค่ำ"
+        index = int(longitude_deg // 30)
 
-    elif phase_day < 15.8:
-        return "🌕 วันเพ็ญ / Full Moon"
+        thai_name, english_name = western_zodiac[index]
 
-    elif phase_day < 22.1:
-        return f"🌖 ข้างแรม ประมาณ {int(phase_day - 15)} ค่ำ"
+        degree_in_sign = longitude_deg % 30
 
-    elif phase_day < 23.1:
-        return "🌗 ประมาณแรม 8 ค่ำ / Last Quarter"
+        return {
+            "thai": thai_name,
+            "english": english_name,
+            "longitude": longitude_deg,
+            "degree": degree_in_sign,
+        }
 
-    else:
-        return f"🌘 ข้างแรม ประมาณ {int(phase_day - 15)} ค่ำ"
+    except Exception as e:
+        return {
+            "thai": "ไม่ทราบ",
+            "english": "Unknown",
+            "longitude": None,
+            "degree": None,
+            "error": str(e),
+        }
 
 
 # =========================================================
-# เครื่องเล่นเพลง
+# BUDDHIST / CHRISTIAN ERA
 # =========================================================
 
-MUSIC_FOLDER = "music"
+def get_be_ce(date_obj):
 
+    ce = date_obj.year
+    be = ce + 543
+
+    return ce, be
+
+
+# =========================================================
+# GOLDEN RATIO
+# =========================================================
+
+PHI = (1 + math.sqrt(5)) / 2
+
+
+def golden_ratio_info(date_obj):
+
+    year = date_obj.year
+
+    start = date(year, 1, 1)
+    end = date(year + 1, 1, 1)
+
+    total_days = (end - start).days
+
+    day_number = (date_obj - start).days + 1
+
+    # จุดแบ่ง Golden Section
+    golden_position = total_days / PHI
+
+    distance = abs(day_number - golden_position)
+
+    nearest_day = round(golden_position)
+
+    golden_date = start + timedelta(days=nearest_day - 1)
+
+    return {
+        "phi": PHI,
+        "total_days": total_days,
+        "day_number": day_number,
+        "golden_position": golden_position,
+        "distance": distance,
+        "golden_date": golden_date,
+    }
+
+
+# =========================================================
+# WEATHER
+# =========================================================
+
+@st.cache_data(ttl=600)
+def get_weather(city):
+
+    try:
+
+        geo_url = "https://geocoding-api.open-meteo.com/v1/search"
+
+        geo_params = {
+            "name": city,
+            "count": 1,
+            "language": "th",
+            "format": "json",
+        }
+
+        geo_response = requests.get(
+            geo_url,
+            params=geo_params,
+            timeout=10
+        )
+
+        geo_response.raise_for_status()
+
+        geo_data = geo_response.json()
+
+        if not geo_data.get("results"):
+            return None
+
+        location = geo_data["results"][0]
+
+        latitude = location["latitude"]
+        longitude = location["longitude"]
+
+        weather_url = "https://api.open-meteo.com/v1/forecast"
+
+        weather_params = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "current": (
+                "temperature_2m,"
+                "relative_humidity_2m,"
+                "apparent_temperature,"
+                "precipitation,"
+                "weather_code,"
+                "wind_speed_10m"
+            ),
+            "timezone": "Asia/Bangkok",
+        }
+
+        weather_response = requests.get(
+            weather_url,
+            params=weather_params,
+            timeout=10
+        )
+
+        weather_response.raise_for_status()
+
+        weather_data = weather_response.json()
+
+        return {
+            "location": location,
+            "current": weather_data.get("current", {}),
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e)
+        }
+
+
+def weather_description(code):
+
+    weather_codes = {
+        0: "ท้องฟ้าแจ่มใส",
+        1: "แจ่มใสเป็นส่วนใหญ่",
+        2: "มีเมฆบางส่วน",
+        3: "มีเมฆมาก",
+        45: "มีหมอก",
+        48: "มีหมอกจับตัวเป็นน้ำค้างแข็ง",
+        51: "ฝนละอองเล็กน้อย",
+        53: "ฝนละออง",
+        55: "ฝนละอองหนาแน่น",
+        61: "ฝนเล็กน้อย",
+        63: "ฝนปานกลาง",
+        65: "ฝนตกหนัก",
+        71: "หิมะตกเล็กน้อย",
+        73: "หิมะตกปานกลาง",
+        75: "หิมะตกหนัก",
+        80: "ฝนตกเป็นช่วง",
+        81: "ฝนตกเป็นช่วงปานกลาง",
+        82: "ฝนตกหนักเป็นช่วง",
+        95: "พายุฝนฟ้าคะนอง",
+        96: "พายุฝนฟ้าคะนองและลูกเห็บ",
+        99: "พายุฝนฟ้าคะนองและลูกเห็บหนัก",
+    }
+
+    return weather_codes.get(code, "ไม่ทราบสภาพอากาศ")
+
+
+# =========================================================
+# MUSIC
+# =========================================================
 
 def get_music_files():
-    """
-    อ่านไฟล์เพลงจากโฟลเดอร์ music
-    รองรับ mp3 / wav / ogg / m4a
-    """
 
-    if not os.path.exists(MUSIC_FOLDER):
-        os.makedirs(MUSIC_FOLDER)
-
-    supported = (
+    extensions = (
         ".mp3",
         ".wav",
         ".ogg",
         ".m4a",
+        ".aac",
     )
 
     files = []
 
-    for filename in os.listdir(MUSIC_FOLDER):
+    try:
+        for filename in os.listdir(APP_DIR):
 
-        if filename.lower().endswith(supported):
-            files.append(filename)
+            full_path = os.path.join(APP_DIR, filename)
 
-    return sorted(files)
+            if (
+                os.path.isfile(full_path)
+                and filename.lower().endswith(extensions)
+            ):
+                files.append(filename)
+
+    except Exception:
+        pass
+
+    return sorted(files, key=str.lower)
 
 
-def music_player():
-    """
-    เครื่องเล่นเพลงจากไฟล์ในโฟลเดอร์ music
-    """
+# =========================================================
+# HEADER
+# =========================================================
+
+show_logo()
+
+st.markdown(
+    '<div class="main-title">Mon101</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    '<div class="sub-title">ปฏิทิน • จันทรคติ • นักษัตร • ดาราศาสตร์ • เวลา • อากาศ • เพลง</div>',
+    unsafe_allow_html=True
+)
+
+
+# =========================================================
+# MAIN DATE
+# =========================================================
+
+today = date.today()
+
+selected_date = st.date_input(
+    "เลือกวันที่",
+    value=today
+)
+
+
+# =========================================================
+# TABS
+# =========================================================
+
+tabs = st.tabs([
+    "📅 วันที่",
+    "🌙 จันทรคติ",
+    "🐉 นักษัตร / ราศี",
+    "🌍 เวลาโลก",
+    "🌦️ อากาศ",
+    "🗓️ ปฏิทิน",
+    "🔄 เปรียบเทียบวันที่",
+    "🟡 Golden Ratio",
+    "🎵 เพลง",
+])
+
+
+# =========================================================
+# TAB 1 : DATE
+# =========================================================
+
+with tabs[0]:
+
+    ce, be = get_be_ce(selected_date)
+
+    weekday = thai_weekdays[selected_date.weekday()]
+    month_name = thai_months[selected_date.month]
+
+    st.markdown(
+        f"""
+        <div class="info-box">
+            <div class="big-number">
+                {selected_date.day} {month_name} {be}
+            </div>
+            <div style="text-align:center;font-size:20px;">
+                {weekday}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric("ค.ศ.", ce)
+
+    with col2:
+        st.metric("พ.ศ.", be)
+
+    with col3:
+        st.metric(
+            "วันที่ของปี",
+            selected_date.timetuple().tm_yday
+        )
+
+
+# =========================================================
+# TAB 2 : THAI LUNAR
+# =========================================================
+
+with tabs[1]:
+
+    st.subheader("🌙 ปฏิทินจันทรคติไทย")
+
+    lunar_date = get_thai_lunar_date(selected_date)
+
+    st.markdown(
+        f"""
+        <div class="info-box">
+            <div style="font-size:30px;font-weight:700;text-align:center;">
+                {lunar_date}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.info(
+        "ส่วนนี้ไม่ได้ใช้สูตรจำลองรอบดวงจันทร์แบบกำหนดเอง "
+        "แต่ใช้ตัวแปลงปฏิทินจันทรคติไทยจาก PyThaiNLP"
+    )
+
+
+# =========================================================
+# TAB 3 : ZODIAC
+# =========================================================
+
+with tabs[2]:
+
+    st.subheader("🐉 นักษัตรและราศี")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.markdown("### 🐉 นักษัตร")
+
+        zodiac = get_thai_zodiac(selected_date.year)
+
+        st.markdown(
+            f"""
+            <div class="info-box">
+                <div class="big-number">
+                    {zodiac}
+                </div>
+                <div style="text-align:center;">
+                    ปี ค.ศ. {selected_date.year}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.caption(
+            "นักษัตรส่วนนี้อ้างอิงปี ค.ศ. ตามฟังก์ชัน Thai Zodiac ของ PyThaiNLP"
+        )
+
+    with col2:
+
+        st.markdown("### ☀️ ราศีตะวันตก")
+
+        western = get_western_zodiac(selected_date)
+
+        st.markdown(
+            f"""
+            <div class="info-box">
+                <div class="big-number">
+                    {western["thai"]}
+                </div>
+                <div style="text-align:center;font-size:20px;">
+                    {western["english"]}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        if western["degree"] is not None:
+
+            st.write(
+                f"ตำแหน่งดวงอาทิตย์ประมาณ "
+                f"{western['degree']:.2f}° "
+                f"ภายในราศี"
+            )
+
+            st.caption(
+                f"Ecliptic longitude ≈ {western['longitude']:.4f}°"
+            )
+
+
+# =========================================================
+# TAB 4 : WORLD TIME
+# =========================================================
+
+with tabs[3]:
+
+    st.subheader("🌍 เวลาท้องถิ่นของอุปกรณ์")
+
+    st.info(
+        "เวลาส่วนนี้อ่านจากเวลาของอุปกรณ์/เบราว์เซอร์ของคุณ "
+        "จึงไม่ใช่เวลาที่จำลองขึ้นจากค่าเริ่มต้นของโปรแกรม"
+    )
+
+    st.components.v1.html(
+        """
+        <div id="clock"
+             style="
+                font-size:42px;
+                font-weight:bold;
+                text-align:center;
+                padding:30px;
+             ">
+        </div>
+
+        <div id="zone"
+             style="
+                text-align:center;
+                font-size:18px;
+                opacity:0.7;
+             ">
+        </div>
+
+        <script>
+
+        function updateClock() {
+
+            const now = new Date();
+
+            document.getElementById("clock").innerHTML =
+                now.toLocaleString("th-TH", {
+                    weekday: "long",
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit"
+                });
+
+            document.getElementById("zone").innerHTML =
+                "Timezone: " +
+                Intl.DateTimeFormat().resolvedOptions().timeZone;
+        }
+
+        updateClock();
+
+        setInterval(updateClock, 1000);
+
+        </script>
+        """,
+        height=150
+    )
+
+
+# =========================================================
+# TAB 5 : WEATHER
+# =========================================================
+
+with tabs[4]:
+
+    st.subheader("🌦️ สภาพอากาศ")
+
+    city = st.text_input(
+        "ค้นหาเมือง",
+        value="อุดรธานี"
+    )
+
+    if st.button("🔍 ตรวจสอบอากาศ"):
+
+        weather = get_weather(city)
+
+        if weather is None:
+
+            st.warning("ไม่พบเมืองที่ค้นหา")
+
+        elif "error" in weather:
+
+            st.error(
+                f"เกิดข้อผิดพลาด: {weather['error']}"
+            )
+
+        else:
+
+            location = weather["location"]
+            current = weather["current"]
+
+            st.success(
+                f"{location.get('name', city)}, "
+                f"{location.get('country', '')}"
+            )
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.metric(
+                    "อุณหภูมิ",
+                    f"{current.get('temperature_2m', '-')}"
+                    f" {current.get('units', {}).get('temperature_2m', '°C')}"
+                )
+
+            with col2:
+                st.metric(
+                    "ความชื้น",
+                    f"{current.get('relative_humidity_2m', '-')}%"
+                )
+
+            with col3:
+                st.metric(
+                    "ลม",
+                    f"{current.get('wind_speed_10m', '-')} km/h"
+                )
+
+            code = current.get("weather_code")
+
+            st.write(
+                f"**สภาพอากาศ:** {weather_description(code)}"
+            )
+
+            st.write(
+                f"อุณหภูมิที่รู้สึกได้: "
+                f"{current.get('apparent_temperature', '-')} °C"
+            )
+
+
+# =========================================================
+# TAB 6 : CALENDAR
+# =========================================================
+
+with tabs[5]:
+
+    st.subheader("🗓️ ปฏิทินรายเดือน")
+
+    year = st.number_input(
+        "ปี ค.ศ.",
+        min_value=1,
+        max_value=9999,
+        value=selected_date.year,
+        step=1
+    )
+
+    month = st.number_input(
+        "เดือน",
+        min_value=1,
+        max_value=12,
+        value=selected_date.month,
+        step=1
+    )
+
+    cal = calendar.month(
+        int(year),
+        int(month)
+    )
+
+    st.code(
+        cal,
+        language=None
+    )
+
+
+# =========================================================
+# TAB 7 : COMPARE DATES
+# =========================================================
+
+with tabs[6]:
+
+    st.subheader("🔄 เปรียบเทียบวันที่")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        date_a = st.date_input(
+            "วันที่ A",
+            value=selected_date,
+            key="date_a"
+        )
+
+    with col2:
+
+        date_b = st.date_input(
+            "วันที่ B",
+            value=today,
+            key="date_b"
+        )
+
+    difference = abs(
+        (date_b - date_a).days
+    )
+
+    st.markdown(
+        f"""
+        <div class="info-box">
+            <div class="big-number">
+                {difference:,}
+            </div>
+            <div style="text-align:center;font-size:20px;">
+                วัน
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# =========================================================
+# TAB 8 : GOLDEN RATIO
+# =========================================================
+
+with tabs[7]:
+
+    st.subheader("🟡 Golden Ratio")
+
+    info = golden_ratio_info(selected_date)
+
+    st.write(
+        f"ค่า Golden Ratio (φ) = **{info['phi']:.12f}**"
+    )
+
+    st.write(
+        f"ปีนี้มี **{info['total_days']} วัน**"
+    )
+
+    st.write(
+        f"วันที่เลือกคือวันที่ **{info['day_number']}** ของปี"
+    )
+
+    st.write(
+        f"ตำแหน่ง Golden Section ของปี ≈ "
+        f"วันที่ {info['golden_position']:.2f}"
+    )
+
+    st.write(
+        f"วันที่ใกล้จุด Golden Section ที่สุดคือ "
+        f"**{info['golden_date'].strftime('%d/%m/%Y')}**"
+    )
+
+    st.write(
+        f"วันที่เลือกห่างจากจุดนั้นประมาณ "
+        f"**{info['distance']:.2f} วัน**"
+    )
+
+    st.info(
+        "ส่วนนี้เป็นคณิตศาสตร์ของ Golden Ratio เท่านั้น "
+        "ไม่ได้ตีความเป็นพลังงาน โชค หรือคะแนนชีวิต"
+    )
+
+
+# =========================================================
+# TAB 9 : MUSIC
+# =========================================================
+
+with tabs[8]:
 
     st.subheader("🎵 เครื่องเล่นเพลง")
+
+    st.write(
+        "วางไฟล์เพลงไว้ในโฟลเดอร์เดียวกับ app.py"
+    )
+
+    st.code(
+        """
+Mon101/
+├── app.py
+├── logo.jpg
+├── requirements.txt
+├── README.md
+├── 4ทิศ.mp3
+├── เพลงของฉัน.mp3
+└── เพลงอีกเพลง.mp3
+        """,
+        language=None
+    )
+
+    if st.button("🔄 สแกนเพลงใหม่"):
+
+        st.rerun()
 
     music_files = get_music_files()
 
     if not music_files:
 
-        st.info(
-            "ยังไม่มีเพลงในระบบ\n\n"
-            "ให้นำไฟล์ .mp3 ไปใส่ในโฟลเดอร์ music "
-            "ที่อยู่ข้าง ๆ app.py"
+        st.warning(
+            "ยังไม่พบไฟล์เพลงในโฟลเดอร์เดียวกับ app.py"
         )
 
-        return
+    else:
 
-    selected_song = st.selectbox(
-        "เลือกเพลง",
-        music_files,
-        key="music_select",
-    )
-
-    song_path = os.path.join(
-        MUSIC_FOLDER,
-        selected_song,
-    )
-
-    st.audio(
-        song_path,
-        format="audio/mpeg",
-    )
-
-    st.caption(
-        f"🎶 กำลังเลือกเพลง: {selected_song}"
-    )
-
-
-# =========================================================
-# หน้าแรก
-# =========================================================
-
-st.markdown(
-    '<div class="main-title">📅 แอปปฏิทินอเนกประสงค์</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="sub-title">'
-    "ระบบปฏิทิน • วัน • เดือน • นักษัตร • ราศี • อากาศ • เพลง"
-    "</div>",
-    unsafe_allow_html=True,
-)
-
-
-# =========================================================
-# Tabs
-# =========================================================
-
-tabs = st.tabs(
-    [
-        "🗓️ วันที่",
-        "🌙 ข้างขึ้น/แรม & นักษัตร",
-        "⭐ ราศี & พ.ศ./ค.ศ.",
-        "🌍 เวลาโลก",
-        "⛅ อากาศ",
-        "⏪ ปฏิทินย้อนหลัง",
-        "⚖️ เปรียบเทียบ 2 วัน",
-        "✨ ค่าสมดุล 1.618",
-        "🎵 เพลง",
-    ]
-)
-
-
-# =========================================================
-# TAB 1
-# =========================================================
-
-with tabs[0]:
-
-    show_logo()
-
-    st.subheader("1–3. ข้อมูลวันที่")
-
-    selected_date = st.date_input(
-        "เลือกวันที่",
-        date.today(),
-        key="main_date",
-    )
-
-    eng_day = selected_date.strftime("%A")
-
-    day_name_th = days_th.get(
-        eng_day,
-        eng_day,
-    )
-
-    month_name_th = months_th[
-        selected_date.month
-    ]
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "1. วันที่",
-        selected_date.day,
-    )
-
-    col2.metric(
-        "2. วัน",
-        day_name_th,
-    )
-
-    col3.metric(
-        "3. เดือน",
-        month_name_th,
-    )
-
-
-# =========================================================
-# TAB 2
-# =========================================================
-
-with tabs[1]:
-
-    show_logo()
-
-    st.subheader(
-        "4–5. ข้างขึ้น/ข้างแรม และปีนักษัตร"
-    )
-
-    b_year = selected_date.year + 543
-
-    lunar = get_lunar_phase(
-        selected_date
-    )
-
-    naksat = get_naksat(
-        b_year
-    )
-
-    c1, c2 = st.columns(2)
-
-    c1.info(
-        f"**4. ข้างขึ้น / ข้างแรม**\n\n{lunar}"
-    )
-
-    c2.info(
-        f"**5. ปีนักษัตร**\n\n{naksat}"
-    )
-
-
-# =========================================================
-# TAB 3
-# =========================================================
-
-with tabs[2]:
-
-    show_logo()
-
-    st.subheader(
-        "6–7. ปี พ.ศ. / ค.ศ. และราศี"
-    )
-
-    ce_year = selected_date.year
-
-    be_year = ce_year + 543
-
-    zodiac = get_zodiac(
-        selected_date.day,
-        selected_date.month,
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "6. ปี พ.ศ.",
-        be_year,
-    )
-
-    c2.metric(
-        "ปี ค.ศ.",
-        ce_year,
-    )
-
-    c3.metric(
-        "7. ราศี",
-        zodiac,
-    )
-
-
-# =========================================================
-# TAB 4
-# =========================================================
-
-with tabs[3]:
-
-    show_logo()
-
-    st.subheader(
-        "8. เวลาท้องถิ่นของเครื่อง"
-    )
-
-    st.write(
-        "เวลานี้อ่านจากเบราว์เซอร์ของผู้ใช้ "
-        "จึงเป็นเวลาของอุปกรณ์ที่เปิดเว็บไซต์"
-    )
-
-    loc_html = """
-    <div id="location-time"
-         style="
-         font-size:18px;
-         font-weight:bold;
-         padding:15px;
-         background:#f0f2f6;
-         border-radius:10px;
-         ">
-    </div>
-
-    <script>
-
-    function updateTime() {
-
-        const now = new Date();
-
-        const timeText =
-            now.toLocaleString(
-                'th-TH',
-                {
-                    dateStyle: 'full',
-                    timeStyle: 'medium'
-                }
-            );
-
-        const timezone =
-            Intl.DateTimeFormat()
-            .resolvedOptions()
-            .timeZone;
-
-        document.getElementById(
-            'location-time'
-        ).innerHTML =
-            "🕒 " + timeText +
-            "<br>🌍 Timezone: " +
-            timezone;
-    }
-
-    updateTime();
-
-    setInterval(
-        updateTime,
-        1000
-    );
-
-    </script>
-    """
-
-    st.components.v1.html(
-        loc_html,
-        height=100,
-    )
-
-
-# =========================================================
-# TAB 5 — WEATHER
-# =========================================================
-
-with tabs[4]:
-
-    show_logo()
-
-    st.subheader(
-        "9. พยากรณ์อากาศ"
-    )
-
-    city = st.text_input(
-        "ชื่อเมืองหรือจังหวัด เช่น Bangkok หรือ Roi Et",
-        value="Bangkok",
-        key="weather_city",
-    )
-
-    if st.button(
-        "🔍 ค้นหาอากาศ",
-        key="weather_button",
-    ):
-
-        try:
-
-            geo_url = (
-                "https://geocoding-api.open-meteo.com/"
-                f"v1/search?name={city}"
-                "&count=1"
-                "&language=th"
-                "&format=json"
-            )
-
-            geo_res = requests.get(
-                geo_url,
-                timeout=10,
-            )
-
-            geo_res.raise_for_status()
-
-            geo_data = geo_res.json()
-
-            if not geo_data.get("results"):
-
-                st.error(
-                    "ไม่พบเมืองที่ค้นหา"
-                )
-
-            else:
-
-                location = geo_data[
-                    "results"
-                ][0]
-
-                lat = location[
-                    "latitude"
-                ]
-
-                lon = location[
-                    "longitude"
-                ]
-
-                country = location.get(
-                    "country",
-                    "",
-                )
-
-                weather_url = (
-                    "https://api.open-meteo.com/"
-                    "v1/forecast?"
-                    f"latitude={lat}"
-                    f"&longitude={lon}"
-                    "&current=temperature_2m,"
-                    "relative_humidity_2m,"
-                    "wind_speed_10m,"
-                    "weather_code"
-                    "&timezone=auto"
-                )
-
-                weather_res = requests.get(
-                    weather_url,
-                    timeout=10,
-                )
-
-                weather_res.raise_for_status()
-
-                weather_data = (
-                    weather_res.json()
-                )
-
-                current = weather_data[
-                    "current"
-                ]
-
-                st.success(
-                    f"📍 {location.get('name', city)} "
-                    f"({country})"
-                )
-
-                c1, c2, c3 = st.columns(3)
-
-                c1.metric(
-                    "🌡️ อุณหภูมิ",
-                    f"{current['temperature_2m']} °C",
-                )
-
-                c2.metric(
-                    "💧 ความชื้น",
-                    f"{current['relative_humidity_2m']} %",
-                )
-
-                c3.metric(
-                    "💨 ความเร็วลม",
-                    f"{current['wind_speed_10m']} km/h",
-                )
-
-                st.caption(
-                    f"พิกัด: {lat}, {lon}"
-                )
-
-        except requests.RequestException as e:
-
-            st.error(
-                f"เชื่อมต่อบริการอากาศไม่ได้: {e}"
-            )
-
-        except Exception as e:
-
-            st.error(
-                f"เกิดข้อผิดพลาด: {e}"
-            )
-
-
-# =========================================================
-# TAB 6
-# =========================================================
-
-with tabs[5]:
-
-    show_logo()
-
-    st.subheader(
-        "10. ปฏิทินย้อนหลัง / ล่วงหน้า"
-    )
-
-    col_y, col_m = st.columns(2)
-
-    with col_y:
-
-        target_year = st.number_input(
-            "เลือกปี ค.ศ.",
-            min_value=1900,
-            max_value=2100,
-            value=date.today().year,
-            step=1,
+        st.success(
+            f"พบเพลง {len(music_files)} ไฟล์"
         )
 
-    with col_m:
+        song_options = {
+            os.path.splitext(filename)[0]: filename
+            for filename in music_files
+        }
 
-        target_month = st.selectbox(
-            "เลือกเดือน",
-            range(1, 13),
-            format_func=lambda x:
-                months_th[x],
-            index=date.today().month - 1,
+        selected_song_name = st.selectbox(
+            "เลือกเพลง",
+            list(song_options.keys())
         )
 
-    st.write(
-        f"### {months_th[target_month]} "
-        f"พ.ศ. {target_year + 543}"
-    )
+        selected_song = song_options[selected_song_name]
 
-    cal_text = calendar.month(
-        target_year,
-        target_month,
-    )
-
-    st.code(
-        cal_text,
-        language="text",
-    )
-
-
-# =========================================================
-# TAB 7 — เปรียบเทียบ 2 วัน
-# =========================================================
-
-with tabs[6]:
-
-    show_logo()
-
-    st.subheader(
-        "⚖️ เปรียบเทียบรายละเอียด 2 วัน"
-    )
-
-    col_d1, col_d2 = st.columns(2)
-
-    with col_d1:
-
-        date_a = st.date_input(
-            "เลือกวันที่ 1",
-            date.today(),
-            key="compare_a",
+        song_path = os.path.join(
+            APP_DIR,
+            selected_song
         )
 
-    with col_d2:
-
-        date_b = st.date_input(
-            "เลือกวันที่ 2",
-            date.today() + timedelta(days=7),
-            key="compare_b",
+        st.markdown(
+            f"### 🎶 {selected_song_name}"
         )
 
-    diff_days = abs(
-        (date_b - date_a).days
-    )
-
-    st.info(
-        f"📌 ห่างกัน **{diff_days} วัน** "
-        f"หรือประมาณ "
-        f"**{round(diff_days / 7, 1)} สัปดาห์**"
-    )
-
-    col_res1, col_res2 = st.columns(2)
-
-    for col, selected, label in [
-        (col_res1, date_a, "วันที่ 1"),
-        (col_res2, date_b, "วันที่ 2"),
-    ]:
-
-        with col:
-
-            st.markdown(
-                f"### {label}: "
-                f"{selected.strftime('%d/%m/%Y')}"
-            )
-
-            st.write(
-                f"**วัน:** "
-                f"{days_th[selected.strftime('%A')]} "
-                f"{months_th[selected.month]} "
-                f"{selected.year + 543}"
-            )
-
-            st.write(
-                f"**ข้างขึ้น/แรม:** "
-                f"{get_lunar_phase(selected)}"
-            )
-
-            st.write(
-                f"**ราศี:** "
-                f"{get_zodiac(selected.day, selected.month)}"
-            )
-
-            st.write(
-                f"**นักษัตร:** "
-                f"{get_naksat(selected.year + 543)}"
-            )
+        st.audio(song_path)
 
 
 # =========================================================
-# TAB 8 — GOLDEN RATIO
-# =========================================================
-
-with tabs[7]:
-
-    show_logo()
-
-    st.subheader(
-        "✨ ค่าสัดส่วน 1.618"
-    )
-
-    st.warning(
-        "หมายเหตุ: ส่วนนี้เป็นการคำนวณเชิงคณิตศาสตร์ "
-        "ที่สร้างขึ้นจากเลข 1.618 ไม่ใช่เครื่องมือทางวิทยาศาสตร์ "
-        "สำหรับวัดพลังงาน โชค หรือความกลมกลืนของชีวิต"
-    )
-
-    golden_date = st.date_input(
-        "เลือกวันที่",
-        date.today(),
-        key="golden_date",
-    )
-
-    day_of_year = (
-        golden_date.timetuple().tm_yday
-    )
-
-    total_days = (
-        366
-        if calendar.isleap(
-            golden_date.year
-        )
-        else 365
-    )
-
-    golden_ratio = 1.618033988749895
-
-    golden_position = (
-        total_days / golden_ratio
-    )
-
-    distance = abs(
-        day_of_year - golden_position
-    )
-
-    harmony_score = max(
-        0,
-        100 - (
-            distance / total_days * 100
-        ),
-    )
-
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "📅 วันที่ในรอบปี",
-        f"{day_of_year}/{total_days}",
-    )
-
-    c2.metric(
-        "📐 Golden Ratio",
-        "1.6180339887",
-    )
-
-    c3.metric(
-        "📊 ตำแหน่ง 1.618 ของปี",
-        f"{golden_position:.2f}",
-    )
-
-    st.metric(
-        "✨ ค่าความใกล้เคียงเชิงคณิตศาสตร์",
-        f"{harmony_score:.2f}%",
-    )
-
-
-# =========================================================
-# TAB 9 — MUSIC PLAYER
-# =========================================================
-
-with tabs[8]:
-
-    show_logo()
-
-    st.subheader(
-        "🎵 เครื่องเล่นเพลง"
-    )
-
-    st.write(
-        "เพลงจะถูกอ่านจากโฟลเดอร์ `music` "
-        "ที่อยู่ระดับเดียวกับ `app.py`"
-    )
-
-    music_player()
-
-    st.markdown("---")
-
-    st.caption(
-        "รองรับไฟล์ .mp3, .wav, .ogg และ .m4a"
-    )
-```
-
-### โครงสร้างโฟลเดอร์
-
-ให้จัดไฟล์ประมาณนี้ครับ
-
-```text
-โปรเจกต์/
-│
-├── app.py
-├── logo.jpg
-│
-└── music/
-    ├── เพลงที่หนึ่ง.mp3
-    ├── เพลงที่สอง.mp3
-    ├── เพลงที่สาม.mp3
-    └── เพลงที่สี่.mp3
-```
-
-จากนั้นรัน:
-
-```bash
-streamlit run app.py
-```
-
-แล้วเข้าแท็บ **🎵 เพลง** ก็จะเห็นรายชื่อเพลงที่อยู่ใน `music/` และกดเล่นได้ทันที
-
-**ส่วนสำคัญ:** เครื่องเล่นนี้ไม่ได้ดึงเพลงจาก YouTube หรือเว็บภายนอก แต่ **ดึงไฟล์เพลงจากโฟลเดอร์ `music` ในโปรเจกต์โดยตรง** ซึ่งเหมาะกับการทำแอปส่วนตัวและไม่ต้องพึ่ง API เพลงครับ
-
-ถ้าคุณหมายถึง **“ให้หน้า `app.py` ดึงเพลงจากหน้า `.py` อีกไฟล์หนึ่ง”** เช่นมี `music.py` ที่เก็บรายชื่อ/ข้อมูลเพลง หรืออยากให้ **ค้นหาเพลงจากอินเทอร์เน็ตแล้วเล่นในแอป** แบบนั้นโครงสร้างจะต่างออกไปเล็กน้อยครับ
-    
+# FOOTER
+# ========================================================
