@@ -824,7 +824,7 @@ with tab10:
             )
         else:
             st.warning(
-                "ยังไม่พบข้อมูลหวยรัฐบาลย้อนหลัง 12 
+                "ยังไม่พบข้อมูลหวยรัฐบาลย้อนหลัง 12 ปี"
             )
 
     except Exception as e:
@@ -1004,4 +1004,4 @@ with tab12:
 
 
 st.divider()
-st.caption("Mon101")    
+st.caption("Mon101")
