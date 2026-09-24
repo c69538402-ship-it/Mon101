@@ -1,13 +1,11 @@
 import os
 import re
 import math
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
 import streamlit as st
-import logo
-
 
 st.set_page_config(
     page_title="Mon101",
@@ -17,6 +15,15 @@ st.set_page_config(
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 BANGKOK = ZoneInfo("Asia/Bangkok")
+LOGO_PATH = os.path.join(APP_DIR, "logo.jpg")
+
+
+def show_logo():
+    if os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, use_container_width=True)
+    else:
+        st.warning("ไม่พบไฟล์ logo.jpg ในโฟลเดอร์เดียวกับ app.py")
+
 
 THAI_MONTHS = [
     "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน",
@@ -237,18 +244,138 @@ def get_lottery_history(start_date, end_date):
     return rows
 
 
+FOREIGN_LOTTERY_URLS = {
+    "lao": "https://lotto.thaiorc.com/lao/last3/stats-years1.php?pg={page}",
+    "hanoi": "https://lotto.thaiorc.com/hanoi/stats/lottery-years1.php?pg={page}",
+}
+
+
+def _clean_number(value, width=None):
+    text = str(value).strip()
+    if text.lower() in ("nan", "none", ""):
+        return ""
+    text = re.sub(r"[^0-9]", "", text)
+    if width and text:
+        text = text.zfill(width)
+    return text
+
+
+def _find_result_table(html):
+    try:
+        tables = __import__("pandas").read_html(html)
+    except Exception:
+        return None
+
+    for table in tables:
+        columns = [str(c).strip() for c in table.columns]
+        joined = " | ".join(columns)
+        if "งวดวันที่" in joined and len(table) >= 5:
+            table.columns = columns
+            return table
+    return None
+
+
+def _parse_foreign_page(html, kind):
+    table = _find_result_table(html)
+    if table is None:
+        return []
+
+    rows = []
+    for _, row in table.iterrows():
+        data = {str(k).strip(): row[k] for k in table.columns}
+        raw_date = str(data.get("งวดวันที่", ""))
+        match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", raw_date)
+        if not match:
+            continue
+
+        day, month, buddhist_year = map(int, match.groups())
+        try:
+            draw_date = date(buddhist_year - 543, month, day)
+        except ValueError:
+            continue
+
+        if kind == "lao":
+            rows.append({
+                "วันที่": draw_date.strftime("%d/%m/%Y"),
+                "พ.ศ.": str(draw_date.year + 543),
+                "เลข 6 ตัว": _clean_number(data.get("เลข 6 ตัว", ""), 6),
+                "เลข 3 ตัวบน": _clean_number(data.get("เลข 3 ตัวบน", ""), 3),
+                "เลข 2 ตัวบน": _clean_number(data.get("เลข 2 ตัวบน", ""), 2),
+                "เลข 2 ตัวล่าง": _clean_number(data.get("เลข 2 ตัวล่าง", ""), 2),
+                "_date": draw_date,
+            })
+        else:
+            rows.append({
+                "วันที่": draw_date.strftime("%d/%m/%Y"),
+                "พ.ศ.": str(draw_date.year + 543),
+                "รางวัลพิเศษ": _clean_number(data.get("รางวัลพิเศษ", ""), 5),
+                "รางวัลที่ 1": _clean_number(data.get("รางวัลที่ 1", ""), 5),
+                "เลข 3 ตัวบน": _clean_number(data.get("เลข 3 ตัวบน", ""), 3),
+                "เลข 2 ตัวล่าง": _clean_number(data.get("เลข 2 ตัวล่าง", ""), 2),
+                "_date": draw_date,
+            })
+
+    return rows
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_foreign_lottery_history(kind):
+    today_date = datetime.now(BANGKOK).date()
+    start_date = today_date - timedelta(days=365)
+    all_rows = {}
+    consecutive_empty = 0
+
+    for page in range(1, 21):
+        url = FOREIGN_LOTTERY_URLS[kind].format(page=page)
+        try:
+            response = requests.get(
+                url,
+                timeout=20,
+                headers={
+                    "User-Agent": "Mozilla/5.0 Mon101"
+                },
+            )
+            response.raise_for_status()
+            page_rows = _parse_foreign_page(response.text, kind)
+        except Exception:
+            page_rows = []
+
+        if not page_rows:
+            consecutive_empty += 1
+            if consecutive_empty >= 2:
+                break
+            continue
+
+        consecutive_empty = 0
+        for row in page_rows:
+            draw_date = row["_date"]
+            if start_date <= draw_date <= today_date:
+                all_rows[draw_date.isoformat()] = row
+
+        oldest = min(row["_date"] for row in page_rows)
+        if oldest < start_date:
+            break
+
+    rows = sorted(
+        all_rows.values(),
+        key=lambda x: x["_date"],
+        reverse=True,
+    )
+    return rows
+
+
 now = datetime.now(BANGKOK)
 
 st.title("Mon101")
 st.caption(
     "ปฏิทิน • จันทรคติ • นักษัตร • ราศี • เวลาโลก • "
-    "อากาศ • ปฏิทิน • เปรียบเทียบวันที่ • "
-    "Golden Ratio • เพลง • หวยรัฐบาล"
+    "อากาศ • ปฏิทิน • เปรียบเทียบวันที่ • Golden Ratio • "
+    "เพลง • หวยรัฐบาล • หวยลาว • หวยฮานอย"
 )
 
 (
     tab1, tab2, tab3, tab4, tab5,
-    tab6, tab7, tab8, tab9, tab10
+    tab6, tab7, tab8, tab9, tab10, tab11, tab12
 ) = st.tabs([
     "1 วันที่",
     "2 จันทรคติ",
@@ -260,11 +387,13 @@ st.caption(
     "8 Golden Ratio",
     "9 เพลง",
     "10 หวยรัฐบาล",
+    "11 หวยลาว",
+    "12 หวยฮานอย",
 ])
 
 
 with tab1:
-    logo.show()
+    show_logo()
     st.header("📅 วันที่")
 
     col1, col2, col3 = st.columns(3)
@@ -286,7 +415,7 @@ with tab1:
 
 
 with tab2:
-    logo.show()
+    show_logo()
     st.header("🌙 จันทรคติ")
 
     try:
@@ -303,7 +432,7 @@ with tab2:
 
 
 with tab3:
-    logo.show()
+    show_logo()
     st.header("🐉 นักษัตร / ♈ ราศี")
 
     col1, col2 = st.columns(2)
@@ -335,7 +464,7 @@ with tab3:
 
 
 with tab4:
-    logo.show()
+    show_logo()
     st.header("🌍 เวลาโลก")
 
     now_utc = datetime.now(timezone.utc)
@@ -361,7 +490,7 @@ with tab4:
 
 
 with tab5:
-    logo.show()
+    show_logo()
     st.header("☁️ อากาศ")
 
     city = st.text_input(
@@ -454,7 +583,7 @@ with tab5:
 
 
 with tab6:
-    logo.show()
+    show_logo()
     st.header("🗓️ ปฏิทิน")
 
     selected = st.date_input(
@@ -477,7 +606,7 @@ with tab6:
 
 
 with tab7:
-    logo.show()
+    show_logo()
     st.header("🔎 เปรียบเทียบวันที่")
 
     date1 = st.date_input(
@@ -512,7 +641,7 @@ with tab7:
 
 
 with tab8:
-    logo.show()
+    show_logo()
     st.header("🌀 Golden Ratio")
 
     phi = (1 + math.sqrt(5)) / 2
@@ -549,7 +678,7 @@ with tab8:
 
 
 with tab9:
-    logo.show()
+    show_logo()
     st.header("🎵 เพลง")
 
     extensions = (
@@ -615,7 +744,7 @@ with tab9:
 
 
 with tab10:
-    logo.show()
+    show_logo()
     st.header("🎟️ หวยรัฐบาล")
 
     st.subheader("📚 ผลรางวัลย้อนหลัง 12 ปี")
@@ -703,122 +832,4 @@ with tab10:
             st.download_button(
                 "ดาวน์โหลดข้อมูลปีนี้ CSV",
                 data=csv_data,
-                file_name=f"lottery_{selected_year}.csv",
-                mime="text/csv",
-            )
-
-        else:
-            st.warning(
-                "ไม่พบข้อมูลสำหรับปีที่เลือก"
-            )
-
-    except Exception as e:
-        st.error(
-            "โหลดข้อมูลย้อนหลังไม่สำเร็จ"
-        )
-        st.code(str(e))
-
-    st.divider()
-
-    st.subheader("🔎 ค้นหาเลข")
-
-    search_number = st.text_input(
-        "กรอกเลข 6 หลัก",
-        max_chars=6,
-        key="lottery_search_number",
-    )
-
-    if st.button(
-        "ค้นหาจากข้อมูลย้อนหลัง",
-        key="lottery_find_button",
-    ):
-        if not (
-            search_number.isdigit()
-            and len(search_number) == 6
-        ):
-            st.warning(
-                "กรุณากรอกเลข 6 หลัก"
-            )
-        else:
-            try:
-                rows = get_lottery_history(
-                    first_date,
-                    current_date,
-                )
-
-                matches = []
-
-                for row in rows:
-                    if search_number == row["รางวัลที่ 1"]:
-                        matches.append({
-                            "วันที่": row["วันที่"],
-                            "ประเภท": "รางวัลที่ 1",
-                            "เลข": search_number,
-                        })
-
-                    if search_number[-2:] == row["เลขท้าย 2 ตัว"]:
-                        matches.append({
-                            "วันที่": row["วันที่"],
-                            "ประเภท": "เลขท้าย 2 ตัว",
-                            "เลข": search_number[-2:],
-                        })
-
-                    if (
-                        search_number[-3:]
-                        in row["เลขท้าย 3 ตัว"].split(", ")
-                    ):
-                        matches.append({
-                            "วันที่": row["วันที่"],
-                            "ประเภท": "เลขท้าย 3 ตัว",
-                            "เลข": search_number[-3:],
-                        })
-
-                    if (
-                        search_number[:3]
-                        in row["เลขหน้า 3 ตัว"].split(", ")
-                    ):
-                        matches.append({
-                            "วันที่": row["วันที่"],
-                            "ประเภท": "เลขหน้า 3 ตัว",
-                            "เลข": search_number[:3],
-                        })
-
-                if matches:
-                    st.success(
-                        f"พบ {len(matches)} รายการ"
-                    )
-                    st.dataframe(
-                        matches,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                else:
-                    st.info(
-                        "ไม่พบเลขนี้ในข้อมูลย้อนหลัง 12 ปี"
-                    )
-
-            except Exception as e:
-                st.error(
-                    "ค้นหาข้อมูลไม่สำเร็จ"
-                )
-                st.caption(str(e))
-
-    st.divider()
-
-    st.caption(
-        "ข้อมูลย้อนหลังดึงจากคลัง thai-lotto-archive "
-        "ซึ่งระบุว่าเก็บข้อมูลตั้งแต่ปี 2007 "
-        "และระบุแหล่งที่มาของแต่ละงวดไว้ในไฟล์"
-    )
-    st.caption(
-        "สำนักงานสลากกินแบ่งรัฐบาลมีชุดข้อมูลผลรางวัล "
-        "และ API อย่างเป็นทางการเช่นกัน"
-    )
-    st.caption(
-        "สถิติย้อนหลังเป็นข้อมูลในอดีต "
-        "ไม่ใช่การทำนายผลรางวัลในอนาคต"
-    )
-
-
-st.divider()
-st.caption("Mon101")
+              
