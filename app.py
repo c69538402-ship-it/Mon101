@@ -845,90 +845,221 @@ with tab9:
 # TAB 10 : หวยรัฐบาล
 # =========================================================
 
+# =========================================================
+# TAB 10 : หวยรัฐบาล
+# =========================================================
+
 with tab10:
 
     st.header("🎟️ หวยรัฐบาล")
 
+    st.subheader("📊 ผลสลากกินแบ่งรัฐบาล")
+
     st.write(
-        "ตรวจสอบการเชื่อมต่อข้อมูลผลสลากกินแบ่งรัฐบาล"
+        "ค้นหาผลรางวัลย้อนหลังจากข้อมูลของสำนักงานสลากกินแบ่งรัฐบาล"
     )
 
+    st.divider()
+
+    # -----------------------------------------------------
+    # เลือกวันที่
+    # -----------------------------------------------------
+
+    lottery_date = st.date_input(
+        "เลือกวันที่ออกรางวัล",
+        value=datetime.now(BANGKOK).date(),
+        key="lottery_date",
+    )
+
+    date_text = lottery_date.strftime("%Y-%m-%d")
+
     if st.button(
-        "ลองดึงผลล่าสุดจาก GLO",
-        key="glo_button",
+        "🔎 ค้นหาผลรางวัล",
+        key="lottery_search_button",
+        use_container_width=True,
     ):
 
-        try:
+        st.info(
+            f"กำลังค้นหาผลรางวัลวันที่ {lottery_date.strftime('%d/%m/%Y')}"
+        )
 
-            glo_url = (
-                "https://www.glo.or.th/api/lottery/getLotteryResult"
+        # -------------------------------------------------
+        # GLO API
+        # -------------------------------------------------
+
+        api_urls = [
+            "https://api.glo.or.th/utility/lottery-result",
+            "https://www.glo.or.th/api/lottery/getLotteryResult",
+        ]
+
+        result = None
+        last_error = ""
+
+        for api_url in api_urls:
+
+            try:
+
+                response = requests.get(
+                    api_url,
+                    params={
+                        "date": date_text
+                    },
+                    timeout=15,
+                    headers={
+                        "User-Agent": "Mozilla/5.0"
+                    },
+                )
+
+                if response.status_code == 200:
+
+                    try:
+                        result = response.json()
+                    except Exception:
+                        result = response.text
+
+                    break
+
+                last_error = (
+                    f"{response.status_code} "
+                    f"จาก {api_url}"
+                )
+
+            except Exception as e:
+
+                last_error = str(e)
+
+        # -------------------------------------------------
+        # แสดงผล
+        # -------------------------------------------------
+
+        if result is not None:
+
+            st.success(
+                "พบข้อมูลจากระบบ GLO"
             )
 
-            response = requests.get(
-                glo_url,
-                timeout=20,
-            )
+            if isinstance(result, dict):
 
-            st.write(
-                "สถานะการเชื่อมต่อ:",
-                response.status_code,
-            )
+                st.json(result)
 
-            if response.ok:
+            elif isinstance(result, list):
 
-                try:
-
-                    data = response.json()
-
-                    st.json(data)
-
-                except Exception:
-
-                    st.code(
-                        response.text[
-                            :5000
-                        ]
-                    )
+                st.dataframe(
+                    result,
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
             else:
 
-                st.warning(
-                    "เซิร์ฟเวอร์ GLO "
-                    "ตอบกลับด้วยสถานะที่ไม่สำเร็จ"
+                st.code(
+                    str(result)
                 )
 
-        except Exception as e:
+        else:
 
-            st.error(
-                "เชื่อมต่อข้อมูลหวยรัฐบาลไม่สำเร็จ"
+            st.warning(
+                "ระบบ API ของ GLO ไม่ตอบข้อมูลโดยตรงในขณะนี้"
             )
 
             st.caption(
-                str(e)
+                f"รายละเอียด: {last_error}"
+            )
+
+            st.info(
+                "สามารถตรวจสอบข้อมูลผลรางวัลจากฐานข้อมูล "
+                "สำนักงานสลากกินแบ่งรัฐบาลได้โดยตรง"
+            )
+
+    # -----------------------------------------------------
+    # ข้อมูลย้อนหลัง
+    # -----------------------------------------------------
+
+    st.divider()
+
+    st.subheader("📚 ผลย้อนหลัง 12 ปี")
+
+    current_year = datetime.now(
+        BANGKOK
+    ).year
+
+    start_year = current_year - 12
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.metric(
+            "เริ่มต้น",
+            f"พ.ศ. {start_year + 543}",
+        )
+
+    with col2:
+
+        st.metric(
+            "ถึงปัจจุบัน",
+            f"พ.ศ. {current_year + 543}",
+        )
+
+    st.write(
+        "สำนักงานสลากกินแบ่งรัฐบาลมีชุดข้อมูล "
+        "ผลการออกรางวัลและข้อมูลสถิติย้อนหลัง"
+    )
+
+    st.link_button(
+        "🏛️ เปิดฐานข้อมูล GLO",
+        "https://gdcatalog.glo.or.th/th/dataset/dataset_c4-9_01",
+        use_container_width=True,
+    )
+
+    st.divider()
+
+    # -----------------------------------------------------
+    # สถิติเลขรางวัล
+    # -----------------------------------------------------
+
+    st.subheader("🔢 ตรวจเลขสลาก")
+
+    lottery_number = st.text_input(
+        "กรอกเลขสลาก 6 หลัก",
+        max_chars=6,
+        key="lottery_number",
+    )
+
+    if lottery_number:
+
+        if (
+            lottery_number.isdigit()
+            and len(lottery_number) == 6
+        ):
+
+            st.write(
+                f"เลขที่กรอก: **{lottery_number}**"
+            )
+
+            st.write(
+                "ระบบสามารถนำเลขนี้ไปตรวจย้อนหลัง "
+                "เมื่อเชื่อมต่อฐานข้อมูลผลรางวัลได้"
+            )
+
+        else:
+
+            st.warning(
+                "กรุณากรอกตัวเลข 6 หลัก"
             )
 
     st.divider()
 
-    st.subheader(
-        "📚 ผลย้อนหลัง 12 ปี"
-    )
-
-    st.info(
-        "ส่วนฐานข้อมูลย้อนหลัง 12 ปี "
-        "ยังไม่ใส่ตัวเลขแบบเดาสุ่มลงไป "
-        "เพื่อป้องกันข้อมูลผิดพลาด"
-    )
-
-    st.write(
-        "เมื่อมีชุดข้อมูลผลรางวัลย้อนหลังที่ตรวจสอบแหล่งที่มาได้ "
-        "สามารถนำมาใส่เป็นตารางย้อนหลังได้"
+    st.caption(
+        "แหล่งข้อมูลหลัก: สำนักงานสลากกินแบ่งรัฐบาล"
     )
 
     st.caption(
-        "หมายเหตุ: สถิติหวยย้อนหลังใช้ดูข้อมูลในอดีต "
-        "ไม่ได้เป็นการทำนายผลรางวัลในอนาคต"
-    )
+        "ข้อมูลย้อนหลังใช้สำหรับตรวจสอบผลในอดีต "
+        "ไม่ใช่การทำนายผลรางวัลในอนาคต"
+            )
 
+        
 
 # =========================================================
 # FOOTER
