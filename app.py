@@ -852,4 +852,18 @@ with tab10:
     st.subheader("🔎 ค้นหาเลข")
 
     search_number = st.text_input(
-        "กรอกเลข 6 หลัก"          
+        "กรอกเลข 6 หลัก"     
+        max_chars=6,
+        key="lottery_search_number",
+    )
+
+    if st.button(
+        "ค้นหาจากข้อมูลย้อนหลัง",
+        key="lottery_find_button",
+    ):
+        if not (
+            search_number.isdigit()
+            and len(search_number) == 6
+        ):
+            st.warning(
+                "กรุณากรอกเลข 6 หลัก"
