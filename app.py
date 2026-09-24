@@ -867,3 +867,39 @@ with tab10:
         ):
             st.warning(
                 "กรุณากรอกเลข 6 หลัก"
+         )
+        else:
+            try:
+                rows = get_lottery_history(
+                    first_date,
+                    current_date,
+                )
+
+                matches = []
+
+                for row in rows:
+                    if search_number == row["รางวัลที่ 1"]:
+                        matches.append({
+                            "วันที่": row["วันที่"],
+                            "ประเภท": "รางวัลที่ 1",
+                            "เลข": search_number,
+                        })
+
+                    if search_number[-2:] == row["เลขท้าย 2 ตัว"]:       
+              matches.append({
+                            "วันที่": row["วันที่"],
+                            "ประเภท": "เลขท้าย 2 ตัว",
+                            "เลข": search_number[-2:],
+                        })
+
+                    if (
+                        search_number[-3:]
+                        in row["เลขท้าย 3 ตัว"].split(", ")
+                    ):
+                        matches.append({
+                            "วันที่": row["วันที่"],
+                            "ประเภท": "เลขท้าย 3 ตัว",
+                            "เลข": search_number[-3:],
+                        })
+
+                    if ( 
