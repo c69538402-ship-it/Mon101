@@ -245,8 +245,14 @@ def get_lottery_history(start_date, end_date):
 
 
 FOREIGN_LOTTERY_URLS = {
-    "lao": "https://lotto.thaiorc.com/lao/last3/stats-years1.php?pg={page}",
-    "hanoi": "https://lotto.thaiorc.com/hanoi/stats/lottery-years1.php?pg={page}",
+    "lao": [
+        "https://lotto.thaiorc.com/lao/last3/stats-years1.php?pg={page}",
+        "https://thaiorc.com/lotto/lao/last3/stats-years1.php?pg={page}",
+    ],
+    "hanoi": [
+        "https://lotto.thaiorc.com/hanoi/stats/lottery-years1.php?pg={page}",
+        "https://thaiorc.com/lotto/hanoi/stats/lottery-years1.php?pg={page}",
+    ],
 }
 
 
@@ -260,58 +266,64 @@ def _clean_number(value, width=None):
     return text
 
 
-def _find_result_table(html):
-    try:
-        tables = __import__("pandas").read_html(html)
-    except Exception:
-        return None
-
-    for table in tables:
-        columns = [str(c).strip() for c in table.columns]
-        joined = " | ".join(columns)
-        if "งวดวันที่" in joined and len(table) >= 5:
-            table.columns = columns
-            return table
-    return None
+def _strip_html(html):
+    html = re.sub(r"<script[\s\S]*?</script>", " ", html, flags=re.I)
+    html = re.sub(r"<style[\s\S]*?</style>", " ", html, flags=re.I)
+    html = re.sub(r"<[^>]+>", " ", html)
+    html = html.replace("&nbsp;", " ")
+    html = html.replace("&amp;", "&")
+    html = re.sub(r"\s+", " ", html)
+    return html.strip()
 
 
 def _parse_foreign_page(html, kind):
-    table = _find_result_table(html)
-    if table is None:
-        return []
-
+    text = _strip_html(html)
     rows = []
-    for _, row in table.iterrows():
-        data = {str(k).strip(): row[k] for k in table.columns}
-        raw_date = str(data.get("งวดวันที่", ""))
-        match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", raw_date)
-        if not match:
-            continue
 
-        day, month, buddhist_year = map(int, match.groups())
+    if kind == "lao":
+        pattern = re.compile(
+            r"(\d{1,2}/\d{1,2}/\d{4})\s+"
+            r"(\d{6})\s+(\d{3})\s+(\d{2})\s+(\d{2})"
+        )
+    else:
+        pattern = re.compile(
+            r"(\d{1,2}/\d{1,2}/\d{4})\s+"
+            r"(\d{5})\s+(\d{5})\s+(\d{3})\s+(\d{2})"
+        )
+
+    seen = set()
+    for match in pattern.finditer(text):
+        date_text = match.group(1)
+        day, month, buddhist_year = map(int, date_text.split("/"))
         try:
             draw_date = date(buddhist_year - 543, month, day)
         except ValueError:
             continue
 
+        if draw_date.isoformat() in seen:
+            continue
+        seen.add(draw_date.isoformat())
+
         if kind == "lao":
+            six_digits, top3, top2, bottom2 = match.groups()[1:]
             rows.append({
                 "วันที่": draw_date.strftime("%d/%m/%Y"),
                 "พ.ศ.": str(draw_date.year + 543),
-                "เลข 6 ตัว": _clean_number(data.get("เลข 6 ตัว", ""), 6),
-                "เลข 3 ตัวบน": _clean_number(data.get("เลข 3 ตัวบน", ""), 3),
-                "เลข 2 ตัวบน": _clean_number(data.get("เลข 2 ตัวบน", ""), 2),
-                "เลข 2 ตัวล่าง": _clean_number(data.get("เลข 2 ตัวล่าง", ""), 2),
+                "เลข 6 ตัว": six_digits,
+                "เลข 3 ตัวบน": top3,
+                "เลข 2 ตัวบน": top2,
+                "เลข 2 ตัวล่าง": bottom2,
                 "_date": draw_date,
             })
         else:
+            special, first, top3, bottom2 = match.groups()[1:]
             rows.append({
                 "วันที่": draw_date.strftime("%d/%m/%Y"),
                 "พ.ศ.": str(draw_date.year + 543),
-                "รางวัลพิเศษ": _clean_number(data.get("รางวัลพิเศษ", ""), 5),
-                "รางวัลที่ 1": _clean_number(data.get("รางวัลที่ 1", ""), 5),
-                "เลข 3 ตัวบน": _clean_number(data.get("เลข 3 ตัวบน", ""), 3),
-                "เลข 2 ตัวล่าง": _clean_number(data.get("เลข 2 ตัวล่าง", ""), 2),
+                "รางวัลพิเศษ": special,
+                "รางวัลที่ 1": first,
+                "เลข 3 ตัวบน": top3,
+                "เลข 2 ตัวล่าง": bottom2,
                 "_date": draw_date,
             })
 
@@ -323,30 +335,37 @@ def get_foreign_lottery_history(kind):
     today_date = datetime.now(BANGKOK).date()
     start_date = today_date - timedelta(days=365)
     all_rows = {}
-    consecutive_empty = 0
 
-    for page in range(1, 21):
-        url = FOREIGN_LOTTERY_URLS[kind].format(page=page)
-        try:
-            response = requests.get(
-                url,
-                timeout=20,
-                headers={
-                    "User-Agent": "Mozilla/5.0 Mon101"
-                },
-            )
-            response.raise_for_status()
-            page_rows = _parse_foreign_page(response.text, kind)
-        except Exception:
-            page_rows = []
+    for page in range(1, 25):
+        page_rows = []
+
+        for url_template in FOREIGN_LOTTERY_URLS[kind]:
+            url = url_template.format(page=page)
+            try:
+                response = requests.get(
+                    url,
+                    timeout=30,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Linux; Android 10) "
+                            "AppleWebKit/537.36 Chrome/128 Safari/537.36"
+                        ),
+                        "Accept-Language": "th-TH,th;q=0.9,en;q=0.8",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    },
+                )
+                response.raise_for_status()
+                page_rows = _parse_foreign_page(response.text, kind)
+                if page_rows:
+                    break
+            except Exception:
+                continue
 
         if not page_rows:
-            consecutive_empty += 1
-            if consecutive_empty >= 2:
+            if page >= 3:
                 break
             continue
 
-        consecutive_empty = 0
         for row in page_rows:
             draw_date = row["_date"]
             if start_date <= draw_date <= today_date:
@@ -356,12 +375,11 @@ def get_foreign_lottery_history(kind):
         if oldest < start_date:
             break
 
-    rows = sorted(
+    return sorted(
         all_rows.values(),
         key=lambda x: x["_date"],
         reverse=True,
     )
-    return rows
 
 
 now = datetime.now(BANGKOK)
@@ -832,7 +850,7 @@ with tab10:
             st.download_button(
                 "ดาวน์โหลดข้อมูลปีนี้ CSV",
                 data=csv_data,
-    file_name=f"lottery_{selected_year}.csv",
+                file_name=f"lottery_{selected_year}.csv",
                 mime="text/csv",
             )
 
@@ -852,7 +870,7 @@ with tab10:
     st.subheader("🔎 ค้นหาเลข")
 
     search_number = st.text_input(
-        "กรอกเลข 6 หลัก",     
+        "กรอกเลข 6 หลัก",
         max_chars=6,
         key="lottery_search_number",
     )
@@ -867,7 +885,7 @@ with tab10:
         ):
             st.warning(
                 "กรุณากรอกเลข 6 หลัก"
-         )
+            )
         else:
             try:
                 rows = get_lottery_history(
@@ -885,8 +903,8 @@ with tab10:
                             "เลข": search_number,
                         })
 
-                    if search_number[-2:] == row["เลขท้าย 2 ตัว"]:       
-                       matches.append({
+                    if search_number[-2:] == row["เลขท้าย 2 ตัว"]:
+                        matches.append({
                             "วันที่": row["วันที่"],
                             "ประเภท": "เลขท้าย 2 ตัว",
                             "เลข": search_number[-2:],
@@ -902,9 +920,9 @@ with tab10:
                             "เลข": search_number[-3:],
                         })
 
-                    if ( 
-                    
-row["เลขหน้า 3 ตัว"].split(", ")
+                    if (
+                        search_number[:3]
+                        in row["เลขหน้า 3 ตัว"].split(", ")
                     ):
                         matches.append({
                             "วันที่": row["วันที่"],
@@ -920,7 +938,7 @@ row["เลขหน้า 3 ตัว"].split(", ")
                         matches,
                         use_container_width=True,
                         hide_index=True,
-    )
+                    )
                 else:
                     st.info(
                         "ไม่พบเลขนี้ในข้อมูลย้อนหลัง 12 ปี"
