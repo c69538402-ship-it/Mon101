@@ -1,15 +1,13 @@
 import os
+import re
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from zoneinfo import ZoneInfo
 
-import streamlit as st
 import requests
+import streamlit as st
+import logo
 
-
-# =========================================================
-# Mon101
-# =========================================================
 
 st.set_page_config(
     page_title="Mon101",
@@ -17,37 +15,18 @@ st.set_page_config(
     layout="wide",
 )
 
-
-# =========================================================
-# CONFIG
-# =========================================================
-
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 BANGKOK = ZoneInfo("Asia/Bangkok")
 
 THAI_MONTHS = [
-    "มกราคม",
-    "กุมภาพันธ์",
-    "มีนาคม",
-    "เมษายน",
-    "พฤษภาคม",
-    "มิถุนายน",
-    "กรกฎาคม",
-    "สิงหาคม",
-    "กันยายน",
-    "ตุลาคม",
-    "พฤศจิกายน",
-    "ธันวาคม",
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน",
+    "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม",
+    "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
 ]
 
 THAI_DAYS = [
-    "จันทร์",
-    "อังคาร",
-    "พุธ",
-    "พฤหัสบดี",
-    "ศุกร์",
-    "เสาร์",
-    "อาทิตย์",
+    "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี",
+    "ศุกร์", "เสาร์", "อาทิตย์",
 ]
 
 WORLD_ZONES = {
@@ -62,15 +41,21 @@ WORLD_ZONES = {
     "ลอสแอนเจลิส": "America/Los_Angeles",
 }
 
+LOTTO_TREE_URL = (
+    "https://api.github.com/repos/"
+    "vicha-w/thai-lotto-archive/git/trees/master?recursive=1"
+)
+LOTTO_RAW_BASE = (
+    "https://raw.githubusercontent.com/"
+    "vicha-w/thai-lotto-archive/master/"
+)
 
-# =========================================================
-# FUNCTIONS
-# =========================================================
 
 def thai_date_text(dt):
-    month = THAI_MONTHS[dt.month - 1]
-    year = dt.year + 543
-    return f"{dt.day} {month} {year}"
+    return (
+        f"{dt.day} {THAI_MONTHS[dt.month - 1]} "
+        f"{dt.year + 543}"
+    )
 
 
 def weekday_thai(dt):
@@ -82,20 +67,14 @@ def get_western_zodiac(year, month, day):
         import ephem
 
         local_dt = datetime(
-            year,
-            month,
-            day,
-            12,
-            tzinfo=BANGKOK,
+            year, month, day, 12, tzinfo=BANGKOK
         )
-
         utc_dt = local_dt.astimezone(
             timezone.utc
         ).replace(tzinfo=None)
 
         sun = ephem.Sun(utc_dt)
         ecliptic = ephem.Ecliptic(sun)
-
         longitude = (
             math.degrees(float(ecliptic.lon)) % 360
         )
@@ -127,195 +106,218 @@ def get_western_zodiac(year, month, day):
 
 def get_chinese_zodiac(year):
     animals = [
-        "ชวด",
-        "ฉลู",
-        "ขาล",
-        "เถาะ",
-        "มะโรง",
-        "มะเส็ง",
-        "มะเมีย",
-        "มะแม",
-        "วอก",
-        "ระกา",
-        "จอ",
-        "กุน",
+        "ชวด", "ฉลู", "ขาล", "เถาะ",
+        "มะโรง", "มะเส็ง", "มะเมีย", "มะแม",
+        "วอก", "ระกา", "จอ", "กุน",
     ]
-
     return animals[(year - 4) % 12]
 
 
-# =========================================================
-# HEADER
-# =========================================================
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_lottery_file_list():
+    response = requests.get(
+        LOTTO_TREE_URL,
+        timeout=30,
+        headers={"User-Agent": "Mon101"},
+    )
+    response.raise_for_status()
+
+    data = response.json()
+
+    paths = []
+    for item in data.get("tree", []):
+        path = item.get("path", "")
+        if re.fullmatch(
+            r"lottonumbers/\d{4}-\d{2}-\d{2}\.txt",
+            path,
+        ):
+            paths.append(path)
+
+    return sorted(paths, reverse=True)
+
+
+def parse_lottery_text(text, filename):
+    result = {
+        "date": filename.replace(
+            "lottonumbers/", ""
+        ).replace(".txt", ""),
+        "first": "",
+        "front3": [],
+        "back3": [],
+        "back2": "",
+    }
+
+    labels = {
+        "FIRST": "first",
+        "THREE_FIRST": "front3",
+        "THREE_LAST": "back3",
+        "TWO": "back2",
+    }
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+
+        for label, key in labels.items():
+            if line.startswith(label):
+                values = re.findall(
+                    r"\d{2,6}",
+                    line[len(label):],
+                )
+
+                if key in ("front3", "back3"):
+                    result[key].extend(values)
+                elif values:
+                    result[key] = values[0]
+
+                break
+
+    return result
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_lottery_history(start_date, end_date):
+    paths = get_lottery_file_list()
+    selected = []
+
+    for path in paths:
+        filename = path.split("/")[-1]
+        match = re.fullmatch(
+            r"(\d{4})-(\d{2})-(\d{2})\.txt",
+            filename,
+        )
+
+        if not match:
+            continue
+
+        y, m, d = map(int, match.groups())
+
+        try:
+            draw_date = date(y, m, d)
+        except ValueError:
+            continue
+
+        if start_date <= draw_date <= end_date:
+            selected.append((path, draw_date))
+
+    rows = []
+
+    for path, draw_date in selected:
+        try:
+            response = requests.get(
+                LOTTO_RAW_BASE + path,
+                timeout=20,
+                headers={"User-Agent": "Mon101"},
+            )
+            response.raise_for_status()
+
+            parsed = parse_lottery_text(
+                response.text,
+                path,
+            )
+
+            rows.append(
+                {
+                    "วันที่": draw_date.strftime("%d/%m/%Y"),
+                    "พ.ศ.": str(draw_date.year + 543),
+                    "รางวัลที่ 1": parsed["first"],
+                    "เลขหน้า 3 ตัว": ", ".join(parsed["front3"]),
+                    "เลขท้าย 3 ตัว": ", ".join(parsed["back3"]),
+                    "เลขท้าย 2 ตัว": parsed["back2"],
+                    "_date": draw_date,
+                }
+            )
+
+        except Exception:
+            continue
+
+    rows.sort(
+        key=lambda x: x["_date"],
+        reverse=True,
+    )
+    return rows
+
+
+now = datetime.now(BANGKOK)
 
 st.title("Mon101")
-
 st.caption(
     "ปฏิทิน • จันทรคติ • นักษัตร • ราศี • เวลาโลก • "
     "อากาศ • ปฏิทิน • เปรียบเทียบวันที่ • "
     "Golden Ratio • เพลง • หวยรัฐบาล"
 )
 
-
-# =========================================================
-# TABS
-# =========================================================
-
 (
-    tab1,
-    tab2,
-    tab3,
-    tab4,
-    tab5,
-    tab6,
-    tab7,
-    tab8,
-    tab9,
-    tab10,
-) = st.tabs(
-    [
-        "1 วันที่",
-        "2 จันทรคติ",
-        "3 นักษัตร / ราศี",
-        "4 เวลาโลก",
-        "5 อากาศ",
-        "6 ปฏิทิน",
-        "7 เปรียบเทียบวันที่",
-        "8 Golden Ratio",
-        "9 เพลง",
-        "10 หวยรัฐบาล",
-    ]
-)
+    tab1, tab2, tab3, tab4, tab5,
+    tab6, tab7, tab8, tab9, tab10
+) = st.tabs([
+    "1 วันที่",
+    "2 จันทรคติ",
+    "3 นักษัตร / ราศี",
+    "4 เวลาโลก",
+    "5 อากาศ",
+    "6 ปฏิทิน",
+    "7 เปรียบเทียบวันที่",
+    "8 Golden Ratio",
+    "9 เพลง",
+    "10 หวยรัฐบาล",
+])
 
-
-# =========================================================
-# TAB 1 : วันที่
-# =========================================================
 
 with tab1:
-
+    logo.show()
     st.header("📅 วันที่")
-
-    now = datetime.now(BANGKOK)
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric(
-            "วัน",
-            weekday_thai(now),
-        )
+        st.metric("วัน", weekday_thai(now))
 
     with col2:
-        st.metric(
-            "วันที่",
-            str(now.day),
-        )
+        st.metric("วันที่", str(now.day))
 
     with col3:
-        st.metric(
-            "เวลา",
-            now.strftime("%H:%M:%S"),
-        )
+        st.metric("เวลา", now.strftime("%H:%M:%S"))
 
     st.divider()
-
     st.subheader("วันที่ปัจจุบัน")
+    st.write(thai_date_text(now))
+    st.write(f"ค.ศ. {now.year}")
+    st.write(f"พ.ศ. {now.year + 543}")
 
-    st.write(
-        thai_date_text(now)
-    )
-
-    st.write(
-        f"ค.ศ. {now.year}"
-    )
-
-    st.write(
-        f"พ.ศ. {now.year + 543}"
-    )
-
-    st.caption(
-        now.strftime(
-            "%d/%m/%Y %H:%M:%S"
-        )
-    )
-
-
-# =========================================================
-# TAB 2 : จันทรคติ
-# =========================================================
 
 with tab2:
-
+    logo.show()
     st.header("🌙 จันทรคติ")
 
-    now = datetime.now(BANGKOK)
-
     try:
-
         from pythainlp.util import to_lunar_date
 
-        lunar = to_lunar_date(
-            now.date()
-        )
+        lunar = to_lunar_date(now.date())
 
-        st.subheader(
-            "วันที่จันทรคติ"
-        )
-
+        st.subheader("วันที่จันทรคติ")
         st.write(lunar)
 
-        st.caption(
-            "ข้อมูลจันทรคติจาก PyThaiNLP"
-        )
-
     except Exception as e:
+        st.warning("ยังไม่สามารถอ่านข้อมูลจันทรคติได้")
+        st.caption(str(e))
 
-        st.warning(
-            "ยังไม่สามารถอ่านข้อมูลจันทรคติได้"
-        )
-
-        st.caption(
-            str(e)
-        )
-
-
-# =========================================================
-# TAB 3 : นักษัตร / ราศี
-# =========================================================
 
 with tab3:
-
+    logo.show()
     st.header("🐉 นักษัตร / ♈ ราศี")
-
-    now = datetime.now(BANGKOK)
 
     col1, col2 = st.columns(2)
 
     with col1:
-
-        st.subheader(
-            "นักษัตร"
-        )
-
-        animal = get_chinese_zodiac(
-            now.year
-        )
-
+        st.subheader("นักษัตร")
         st.metric(
             "ปีนักษัตร",
-            animal
+            get_chinese_zodiac(now.year),
         )
-
-        st.write(
-            f"พ.ศ. {now.year + 543}"
-        )
+        st.write(f"พ.ศ. {now.year + 543}")
 
     with col2:
-
-        st.subheader(
-            "ราศีตะวันตก"
-        )
+        st.subheader("ราศีตะวันตก")
 
         sign, degree = get_western_zodiac(
             now.year,
@@ -324,56 +326,32 @@ with tab3:
         )
 
         if sign:
-
-            st.metric(
-                "ราศี",
-                sign
-            )
-
+            st.metric("ราศี", sign)
             st.write(
-                f"ตำแหน่งดวงอาทิตย์ประมาณ "
-                f"{degree:.2f}°"
+                f"ตำแหน่งดวงอาทิตย์ประมาณ {degree:.2f}°"
             )
-
         else:
+            st.warning("ไม่สามารถคำนวณราศีได้")
 
-            st.warning(
-                "ไม่สามารถคำนวณราศีตะวันตกได้"
-            )
-
-
-# =========================================================
-# TAB 4 : เวลาโลก
-# =========================================================
 
 with tab4:
-
+    logo.show()
     st.header("🌍 เวลาโลก")
 
-    now_utc = datetime.now(
-        timezone.utc
-    )
-
+    now_utc = datetime.now(timezone.utc)
     rows = []
 
     for country, zone_name in WORLD_ZONES.items():
-
         local = now_utc.astimezone(
             ZoneInfo(zone_name)
         )
 
-        rows.append(
-            {
-                "สถานที่": country,
-                "เขตเวลา": zone_name,
-                "เวลา": local.strftime(
-                    "%H:%M:%S"
-                ),
-                "วันที่": local.strftime(
-                    "%d/%m/%Y"
-                ),
-            }
-        )
+        rows.append({
+            "สถานที่": country,
+            "เขตเวลา": zone_name,
+            "วันที่": local.strftime("%d/%m/%Y"),
+            "เวลา": local.strftime("%H:%M:%S"),
+        })
 
     st.dataframe(
         rows,
@@ -382,17 +360,9 @@ with tab4:
     )
 
 
-# =========================================================
-# TAB 5 : อากาศ
-# =========================================================
-
 with tab5:
-
+    logo.show()
     st.header("☁️ อากาศ")
-
-    st.write(
-        "ค้นหาเมืองเพื่อดูข้อมูลอากาศ"
-    )
 
     city = st.text_input(
         "ชื่อเมือง",
@@ -404,116 +374,70 @@ with tab5:
         "ตรวจอากาศ",
         key="weather_button",
     ):
-
         try:
-
-            geo_url = (
-                "https://geocoding-api.open-meteo.com/v1/search"
-            )
-
-            geo_params = {
-                "name": city,
-                "count": 1,
-                "language": "en",
-                "format": "json",
-            }
-
-            geo_response = requests.get(
-                geo_url,
-                params=geo_params,
+            geo = requests.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={
+                    "name": city,
+                    "count": 1,
+                    "language": "en",
+                    "format": "json",
+                },
                 timeout=15,
             )
+            geo.raise_for_status()
 
-            geo_response.raise_for_status()
-
-            geo_data = geo_response.json()
-
-            results = geo_data.get(
-                "results",
-                []
+            results = geo.json().get(
+                "results", []
             )
 
             if not results:
-
-                st.error(
-                    "ไม่พบเมืองนี้"
-                )
-
+                st.error("ไม่พบเมืองนี้")
             else:
-
                 place = results[0]
 
-                latitude = place[
-                    "latitude"
-                ]
-
-                longitude = place[
-                    "longitude"
-                ]
-
-                place_name = place.get(
-                    "name",
-                    city
-                )
-
-                country = place.get(
-                    "country",
-                    ""
-                )
-
-                weather_url = (
-                    "https://api.open-meteo.com/v1/forecast"
-                )
-
-                weather_params = {
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "current": (
-                        "temperature_2m,"
-                        "relative_humidity_2m,"
-                        "apparent_temperature,"
-                        "wind_speed_10m,"
-                        "weather_code"
-                    ),
-                    "timezone": "auto",
-                }
-
-                weather_response = requests.get(
-                    weather_url,
-                    params=weather_params,
+                weather = requests.get(
+                    "https://api.open-meteo.com/v1/forecast",
+                    params={
+                        "latitude": place["latitude"],
+                        "longitude": place["longitude"],
+                        "current": (
+                            "temperature_2m,"
+                            "relative_humidity_2m,"
+                            "apparent_temperature,"
+                            "wind_speed_10m,"
+                            "weather_code"
+                        ),
+                        "timezone": "auto",
+                    },
                     timeout=15,
                 )
+                weather.raise_for_status()
 
-                weather_response.raise_for_status()
-
-                weather_data = (
-                    weather_response.json()
-                )
-
-                current = weather_data.get(
-                    "current",
-                    {}
+                current = weather.json().get(
+                    "current", {}
                 )
 
                 st.subheader(
-                    f"{place_name}, {country}"
+                    f"{place.get('name', city)}, "
+                    f"{place.get('country', '')}"
                 )
 
-                col1, col2, col3 = st.columns(3)
+                c1, c2, c3 = st.columns(3)
 
-                with col1:
+                with c1:
                     st.metric(
                         "อุณหภูมิ",
                         f"{current.get('temperature_2m', '-')} °C",
                     )
 
-                with col2:
+                with c2:
                     st.metric(
                         "รู้สึกเหมือน",
                         f"{current.get('apparent_temperature', '-')} °C",
                     )
 
-                with col3:
+                with c3:
                     st.metric(
                         "ความชื้น",
                         f"{current.get('relative_humidity_2m', '-')} %",
@@ -524,35 +448,18 @@ with tab5:
                     f"{current.get('wind_speed_10m', '-')} km/h"
                 )
 
-                st.caption(
-                    "อัปเดต: "
-                    f"{current.get('time', '-')}"
-                )
-
         except Exception as e:
+            st.error("ดึงข้อมูลอากาศไม่สำเร็จ")
+            st.caption(str(e))
 
-            st.error(
-                "ดึงข้อมูลอากาศไม่สำเร็จ"
-            )
-
-            st.caption(
-                str(e)
-            )
-
-
-# =========================================================
-# TAB 6 : ปฏิทิน
-# =========================================================
 
 with tab6:
-
+    logo.show()
     st.header("🗓️ ปฏิทิน")
 
     selected = st.date_input(
         "เลือกวันที่",
-        value=datetime.now(
-            BANGKOK
-        ).date(),
+        value=now.date(),
         key="calendar_date",
     )
 
@@ -563,135 +470,60 @@ with tab6:
         tzinfo=BANGKOK,
     )
 
-    st.subheader(
-        thai_date_text(
-            selected_dt
-        )
-    )
+    st.subheader(thai_date_text(selected_dt))
+    st.write(f"วัน{weekday_thai(selected_dt)}")
+    st.write(f"ค.ศ. {selected.year}")
+    st.write(f"พ.ศ. {selected.year + 543}")
 
-    st.write(
-        f"วัน{weekday_thai(selected_dt)}"
-    )
-
-    st.write(
-        f"ค.ศ. {selected.year}"
-    )
-
-    st.write(
-        f"พ.ศ. {selected.year + 543}"
-    )
-
-
-# =========================================================
-# TAB 7 : เปรียบเทียบวันที่
-# =========================================================
 
 with tab7:
-
+    logo.show()
     st.header("🔎 เปรียบเทียบวันที่")
-
-    today = datetime.now(
-        BANGKOK
-    ).date()
 
     date1 = st.date_input(
         "วันที่ 1",
-        value=today,
+        value=now.date(),
         key="compare_date_1",
     )
 
     date2 = st.date_input(
         "วันที่ 2",
-        value=today,
+        value=now.date(),
         key="compare_date_2",
     )
 
-    difference = (
-        date2 - date1
-    ).days
+    difference = (date2 - date1).days
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        st.metric(
-            "วันที่ 1",
-            thai_date_text(
-                datetime(
-                    date1.year,
-                    date1.month,
-                    date1.day,
-                )
-            ),
-        )
-
-    with col2:
-
-        st.metric(
-            "วันที่ 2",
-            thai_date_text(
-                datetime(
-                    date2.year,
-                    date2.month,
-                    date2.day,
-                )
-            ),
-        )
-
-    with col3:
-
-        st.metric(
-            "จำนวนวัน",
-            str(abs(difference)),
-        )
-
-    st.divider()
+    st.metric(
+        "จำนวนวันที่ต่างกัน",
+        abs(difference),
+    )
 
     if difference > 0:
-
         st.info(
-            f"วันที่ 2 อยู่หลังวันที่ 1 "
-            f"{difference} วัน"
+            f"วันที่ 2 อยู่หลังวันที่ 1 {difference} วัน"
         )
-
     elif difference < 0:
-
         st.info(
-            f"วันที่ 2 อยู่ก่อนวันที่ 1 "
-            f"{abs(difference)} วัน"
+            f"วันที่ 2 อยู่ก่อนวันที่ 1 {abs(difference)} วัน"
         )
-
     else:
+        st.success("เป็นวันเดียวกัน")
 
-        st.success(
-            "เป็นวันเดียวกัน"
-        )
-
-
-# =========================================================
-# TAB 8 : GOLDEN RATIO
-# =========================================================
 
 with tab8:
-
+    logo.show()
     st.header("🌀 Golden Ratio")
 
-    phi = (
-        1 + math.sqrt(5)
-    ) / 2
-
-    st.subheader(
-        "ค่ามาตรฐาน Golden Ratio"
-    )
+    phi = (1 + math.sqrt(5)) / 2
 
     st.metric(
         "φ (Phi)",
         f"{phi:.10f}",
     )
 
-    st.write(
-        "ค่าประมาณ: 1.618"
-    )
+    st.write("ค่าโดยประมาณ: 1.618")
+    st.write("สูตร φ = (1 + √5) / 2")
 
     st.divider()
 
@@ -701,63 +533,36 @@ with tab8:
         key="golden_number",
     )
 
-    col1, col2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    with col1:
-
-        st.write(
-            "คูณ Golden Ratio"
-        )
-
+    with c1:
+        st.write("คูณ Golden Ratio")
         st.success(
             f"{number * phi:.10f}"
         )
 
-    with col2:
-
-        st.write(
-            "หาร Golden Ratio"
-        )
-
+    with c2:
+        st.write("หาร Golden Ratio")
         st.info(
             f"{number / phi:.10f}"
         )
 
-    st.divider()
-
-    st.write(
-        "Golden Ratio = 1.6180339887..."
-    )
-
-    st.write(
-        "สูตร φ = (1 + √5) / 2"
-    )
-
-
-# =========================================================
-# TAB 9 : เพลง
-# =========================================================
 
 with tab9:
-
+    logo.show()
     st.header("🎵 เพลง")
 
     extensions = (
-        ".mp3",
-        ".wav",
-        ".ogg",
-        ".m4a",
-        ".aac",
+        ".mp3", ".wav", ".ogg",
+        ".m4a", ".aac",
     )
 
     music_files = []
 
     try:
-
         for filename in sorted(
             os.listdir(APP_DIR)
         ):
-
             full_path = os.path.join(
                 APP_DIR,
                 filename,
@@ -769,38 +574,21 @@ with tab9:
                     extensions
                 )
             ):
-
-                music_files.append(
-                    filename
-                )
+                music_files.append(filename)
 
     except Exception as e:
-
-        st.error(
-            "ไม่สามารถอ่านไฟล์เพลงได้"
-        )
-
-        st.caption(
-            str(e)
-        )
+        st.error("ไม่สามารถอ่านไฟล์เพลงได้")
+        st.caption(str(e))
 
     if music_files:
-
         st.success(
             f"พบไฟล์เพลง {len(music_files)} ไฟล์"
         )
 
-        for index, filename in enumerate(
-            music_files,
-            start=1,
-        ):
-
-            st.subheader(
-                f"{index}. {filename}"
-            )
+        for filename in music_files:
+            st.subheader(filename)
 
             try:
-
                 with open(
                     os.path.join(
                         APP_DIR,
@@ -808,265 +596,229 @@ with tab9:
                     ),
                     "rb",
                 ) as audio_file:
-
                     st.audio(
                         audio_file.read()
                     )
-
             except Exception as e:
-
                 st.warning(
                     f"เปิดเพลงไม่ได้: {filename}"
                 )
-
-                st.caption(
-                    str(e)
-                )
-
+                st.caption(str(e))
     else:
-
         st.info(
             "ยังไม่พบไฟล์เพลง"
         )
-
         st.write(
-            "ให้นำไฟล์ .mp3 หรือ .wav "
-            "มาไว้โฟลเดอร์เดียวกับ app.py"
+            "วางไฟล์ .mp3 หรือ .wav "
+            "ไว้โฟลเดอร์เดียวกับ app.py"
         )
 
-        st.code(
-            "app.py\n"
-            "4ทิศ.mp3\n"
-            "เพลงอื่น.mp3"
-        )
-
-
-# =========================================================
-# TAB 10 : หวยรัฐบาล
-# =========================================================
-
-# =========================================================
-# TAB 10 : หวยรัฐบาล
-# =========================================================
 
 with tab10:
-
+    logo.show()
     st.header("🎟️ หวยรัฐบาล")
 
-    st.subheader("📊 ผลสลากกินแบ่งรัฐบาล")
+    st.subheader("📚 ผลรางวัลย้อนหลัง 12 ปี")
 
-    st.write(
-        "ค้นหาผลรางวัลย้อนหลังจากข้อมูลของสำนักงานสลากกินแบ่งรัฐบาล"
+    current_date = now.date()
+    first_date = date(
+        current_date.year - 11,
+        current_date.month,
+        current_date.day,
     )
 
-    st.divider()
-
-    # -----------------------------------------------------
-    # เลือกวันที่
-    # -----------------------------------------------------
-
-    lottery_date = st.date_input(
-        "เลือกวันที่ออกรางวัล",
-        value=datetime.now(BANGKOK).date(),
-        key="lottery_date",
+    st.caption(
+        "ช่วงข้อมูล: "
+        f"{first_date.strftime('%d/%m/%Y')} ถึง "
+        f"{current_date.strftime('%d/%m/%Y')}"
     )
 
-    date_text = lottery_date.strftime("%Y-%m-%d")
+    try:
+        paths = get_lottery_file_list()
 
-    if st.button(
-        "🔎 ค้นหาผลรางวัล",
-        key="lottery_search_button",
-        use_container_width=True,
-    ):
-
-        st.info(
-            f"กำลังค้นหาผลรางวัลวันที่ {lottery_date.strftime('%d/%m/%Y')}"
+        st.success(
+            f"พบไฟล์ผลสลากในคลัง {len(paths):,} งวด"
         )
 
-        # -------------------------------------------------
-        # GLO API
-        # -------------------------------------------------
+        years = sorted({
+            int(p.split("/")[-1][:4])
+            for p in paths
+        }, reverse=True)
 
-        api_urls = [
-            "https://api.glo.or.th/utility/lottery-result",
-            "https://www.glo.or.th/api/lottery/getLotteryResult",
+        available_years = [
+            y for y in years
+            if y >= first_date.year
         ]
 
-        result = None
-        last_error = ""
+        selected_year = st.selectbox(
+            "เลือกปี พ.ศ.",
+            available_years,
+            format_func=lambda y: (
+                f"พ.ศ. {y + 543} (ค.ศ. {y})"
+            ),
+            key="lottery_year",
+        )
 
-        for api_url in api_urls:
+        year_start = date(
+            selected_year, 1, 1
+        )
+        year_end = date(
+            selected_year, 12, 31
+        )
 
-            try:
+        rows = get_lottery_history(
+            year_start,
+            year_end,
+        )
 
-                response = requests.get(
-                    api_url,
-                    params={
-                        "date": date_text
-                    },
-                    timeout=15,
-                    headers={
-                        "User-Agent": "Mozilla/5.0"
-                    },
-                )
-
-                if response.status_code == 200:
-
-                    try:
-                        result = response.json()
-                    except Exception:
-                        result = response.text
-
-                    break
-
-                last_error = (
-                    f"{response.status_code} "
-                    f"จาก {api_url}"
-                )
-
-            except Exception as e:
-
-                last_error = str(e)
-
-        # -------------------------------------------------
-        # แสดงผล
-        # -------------------------------------------------
-
-        if result is not None:
+        if rows:
+            display_rows = [
+                {
+                    k: v for k, v in row.items()
+                    if k != "_date"
+                }
+                for row in rows
+            ]
 
             st.success(
-                "พบข้อมูลจากระบบ GLO"
+                f"พบผลรางวัล {len(display_rows)} งวด "
+                f"ในปี ค.ศ. {selected_year}"
             )
 
-            if isinstance(result, dict):
+            st.dataframe(
+                display_rows,
+                use_container_width=True,
+                hide_index=True,
+            )
 
-                st.json(result)
-
-            elif isinstance(result, list):
-
-                st.dataframe(
-                    result,
-                    use_container_width=True,
-                    hide_index=True,
+            csv_data = (
+                __import__("pandas")
+                .DataFrame(display_rows)
+                .to_csv(
+                    index=False,
+                    encoding="utf-8-sig",
                 )
+            )
 
-            else:
-
-                st.code(
-                    str(result)
-                )
+            st.download_button(
+                "ดาวน์โหลดข้อมูลปีนี้ CSV",
+                data=csv_data,
+                file_name=f"lottery_{selected_year}.csv",
+                mime="text/csv",
+            )
 
         else:
-
             st.warning(
-                "ระบบ API ของ GLO ไม่ตอบข้อมูลโดยตรงในขณะนี้"
+                "ไม่พบข้อมูลสำหรับปีที่เลือก"
             )
 
-            st.caption(
-                f"รายละเอียด: {last_error}"
-            )
-
-            st.info(
-                "สามารถตรวจสอบข้อมูลผลรางวัลจากฐานข้อมูล "
-                "สำนักงานสลากกินแบ่งรัฐบาลได้โดยตรง"
-            )
-
-    # -----------------------------------------------------
-    # ข้อมูลย้อนหลัง
-    # -----------------------------------------------------
+    except Exception as e:
+        st.error(
+            "โหลดข้อมูลย้อนหลังไม่สำเร็จ"
+        )
+        st.code(str(e))
 
     st.divider()
 
-    st.subheader("📚 ผลย้อนหลัง 12 ปี")
+    st.subheader("🔎 ค้นหาเลข")
 
-    current_year = datetime.now(
-        BANGKOK
-    ).year
-
-    start_year = current_year - 12
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        st.metric(
-            "เริ่มต้น",
-            f"พ.ศ. {start_year + 543}",
-        )
-
-    with col2:
-
-        st.metric(
-            "ถึงปัจจุบัน",
-            f"พ.ศ. {current_year + 543}",
-        )
-
-    st.write(
-        "สำนักงานสลากกินแบ่งรัฐบาลมีชุดข้อมูล "
-        "ผลการออกรางวัลและข้อมูลสถิติย้อนหลัง"
-    )
-
-    st.link_button(
-        "🏛️ เปิดฐานข้อมูล GLO",
-        "https://gdcatalog.glo.or.th/th/dataset/dataset_c4-9_01",
-        use_container_width=True,
-    )
-
-    st.divider()
-
-    # -----------------------------------------------------
-    # สถิติเลขรางวัล
-    # -----------------------------------------------------
-
-    st.subheader("🔢 ตรวจเลขสลาก")
-
-    lottery_number = st.text_input(
-        "กรอกเลขสลาก 6 หลัก",
+    search_number = st.text_input(
+        "กรอกเลข 6 หลัก",
         max_chars=6,
-        key="lottery_number",
+        key="lottery_search_number",
     )
 
-    if lottery_number:
-
-        if (
-            lottery_number.isdigit()
-            and len(lottery_number) == 6
+    if st.button(
+        "ค้นหาจากข้อมูลย้อนหลัง",
+        key="lottery_find_button",
+    ):
+        if not (
+            search_number.isdigit()
+            and len(search_number) == 6
         ):
-
-            st.write(
-                f"เลขที่กรอก: **{lottery_number}**"
-            )
-
-            st.write(
-                "ระบบสามารถนำเลขนี้ไปตรวจย้อนหลัง "
-                "เมื่อเชื่อมต่อฐานข้อมูลผลรางวัลได้"
-            )
-
-        else:
-
             st.warning(
-                "กรุณากรอกตัวเลข 6 หลัก"
+                "กรุณากรอกเลข 6 หลัก"
             )
+        else:
+            try:
+                rows = get_lottery_history(
+                    first_date,
+                    current_date,
+                )
+
+                matches = []
+
+                for row in rows:
+                    if search_number == row["รางวัลที่ 1"]:
+                        matches.append({
+                            "วันที่": row["วันที่"],
+                            "ประเภท": "รางวัลที่ 1",
+                            "เลข": search_number,
+                        })
+
+                    if search_number[-2:] == row["เลขท้าย 2 ตัว"]:
+                        matches.append({
+                            "วันที่": row["วันที่"],
+                            "ประเภท": "เลขท้าย 2 ตัว",
+                            "เลข": search_number[-2:],
+                        })
+
+                    if (
+                        search_number[-3:]
+                        in row["เลขท้าย 3 ตัว"].split(", ")
+                    ):
+                        matches.append({
+                            "วันที่": row["วันที่"],
+                            "ประเภท": "เลขท้าย 3 ตัว",
+                            "เลข": search_number[-3:],
+                        })
+
+                    if (
+                        search_number[:3]
+                        in row["เลขหน้า 3 ตัว"].split(", ")
+                    ):
+                        matches.append({
+                            "วันที่": row["วันที่"],
+                            "ประเภท": "เลขหน้า 3 ตัว",
+                            "เลข": search_number[:3],
+                        })
+
+                if matches:
+                    st.success(
+                        f"พบ {len(matches)} รายการ"
+                    )
+                    st.dataframe(
+                        matches,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info(
+                        "ไม่พบเลขนี้ในข้อมูลย้อนหลัง 12 ปี"
+                    )
+
+            except Exception as e:
+                st.error(
+                    "ค้นหาข้อมูลไม่สำเร็จ"
+                )
+                st.caption(str(e))
 
     st.divider()
 
     st.caption(
-        "แหล่งข้อมูลหลัก: สำนักงานสลากกินแบ่งรัฐบาล"
+        "ข้อมูลย้อนหลังดึงจากคลัง thai-lotto-archive "
+        "ซึ่งระบุว่าเก็บข้อมูลตั้งแต่ปี 2007 "
+        "และระบุแหล่งที่มาของแต่ละงวดไว้ในไฟล์"
+    )
+    st.caption(
+        "สำนักงานสลากกินแบ่งรัฐบาลมีชุดข้อมูลผลรางวัล "
+        "และ API อย่างเป็นทางการเช่นกัน"
+    )
+    st.caption(
+        "สถิติย้อนหลังเป็นข้อมูลในอดีต "
+        "ไม่ใช่การทำนายผลรางวัลในอนาคต"
     )
 
-    st.caption(
-        "ข้อมูลย้อนหลังใช้สำหรับตรวจสอบผลในอดีต "
-        "ไม่ใช่การทำนายผลรางวัลในอนาคต"
-            )
-
-        
-
-# =========================================================
-# FOOTER
-# =========================================================
 
 st.divider()
-
-st.caption(
-    "Mon101 | ปฏิทินและข้อมูลวันที่"
-            )
+st.caption("Mon101")
