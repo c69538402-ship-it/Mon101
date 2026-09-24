@@ -903,3 +903,39 @@ with tab10:
                         })
 
                     if ( 
+                    
+row["เลขหน้า 3 ตัว"].split(", ")
+                    ):
+                        matches.append({
+                            "วันที่": row["วันที่"],
+                            "ประเภท": "เลขหน้า 3 ตัว",
+                            "เลข": search_number[:3],
+                        })
+
+                if matches:
+                    st.success(
+                        f"พบ {len(matches)} รายการ"
+                    )
+                    st.dataframe(
+                        matches,
+                        use_container_width=True,
+                        hide_index=True,
+    )
+      else:
+                    st.info(
+                        "ไม่พบเลขนี้ในข้อมูลย้อนหลัง 12 ปี"
+                    )
+
+            except Exception as e:
+                st.error(
+                    "ค้นหาข้อมูลไม่สำเร็จ"
+                )
+                st.caption(str(e))
+
+    st.divider()
+
+    st.caption(
+        "ข้อมูลย้อนหลังดึงจากคลัง thai-lotto-archive "
+        "ซึ่งระบุว่าเก็บข้อมูลตั้งแต่ปี 2007 "
+        "และระบุแหล่งที่มาของแต่ละงวดไว้ในไฟล์"
+    )
