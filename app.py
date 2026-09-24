@@ -939,3 +939,83 @@ row["เลขหน้า 3 ตัว"].split(", ")
         "ซึ่งระบุว่าเก็บข้อมูลตั้งแต่ปี 2007 "
         "และระบุแหล่งที่มาของแต่ละงวดไว้ในไฟล์"
     )
+    st.caption(
+        "สำนักงานสลากกินแบ่งรัฐบาลมีชุดข้อมูลผลรางวัล "
+        "และ API อย่างเป็นทางการเช่นกัน"
+    )
+    st.caption(
+        "สถิติย้อนหลังเป็นข้อมูลในอดีต "
+        "ไม่ใช่การทำนายผลรางวัลในอนาคต"
+    )
+
+
+with tab11:
+    show_logo()
+    st.header("🇱🇦 หวยลาว")
+    st.subheader("📚 ผลหวยลาวย้อนหลัง 1 ปี")
+    st.caption("ข้อมูลย้อนหลังประมาณ 365 วัน จากหน้าเผยแพร่สถิติของ ThaiORC; เป็นแหล่งข้อมูลภายนอก ไม่ใช่ API ทางการของรัฐบาลลาว")
+
+    if st.button("โหลดผลหวยลาวย้อนหลัง 1 ปี", key="lao_load"):
+        st.session_state["lao_loaded"] = True
+
+    if st.session_state.get("lao_loaded", False):
+        try:
+            lao_rows = get_foreign_lottery_history("lao")
+            if lao_rows:
+                display = [
+                    {k: v for k, v in row.items() if k != "_date"}
+                    for row in lao_rows
+                ]
+                st.success(f"พบ {len(display):,} งวด")
+                st.dataframe(display, use_container_width=True, hide_index=True)
+                csv_data = __import__("pandas").DataFrame(display).to_csv(index=False, encoding="utf-8-sig")
+                st.download_button(
+                    "ดาวน์โหลดหวยลาว CSV",
+                    data=csv_data,
+                    file_name="lao_lottery_1year.csv",
+                    mime="text/csv",
+                    key="lao_csv",
+                )
+            else:
+                st.warning("ยังไม่พบข้อมูลหวยลาว หรือเว็บไซต์ต้นทางไม่ตอบสนอง")
+        except Exception as e:
+            st.error("โหลดข้อมูลหวยลาวไม่สำเร็จ")
+            st.caption(str(e))
+
+
+with tab12:
+    show_logo()
+    st.header("🇻🇳 หวยฮานอย")
+    st.subheader("📚 ผลหวยฮานอยย้อนหลัง 1 ปี")
+    st.caption("ข้อมูลย้อนหลังประมาณ 365 วัน จากหน้าเผยแพร่สถิติของ ThaiORC; เป็นแหล่งข้อมูลภายนอก ไม่ใช่ข้อมูลทางการของรัฐบาลเวียดนาม")
+
+    if st.button("โหลดผลหวยฮานอยย้อนหลัง 1 ปี", key="hanoi_load"):
+        st.session_state["hanoi_loaded"] = True
+
+    if st.session_state.get("hanoi_loaded", False):
+        try:
+            hanoi_rows = get_foreign_lottery_history("hanoi")
+            if hanoi_rows:
+                display = [
+                    {k: v for k, v in row.items() if k != "_date"}
+                    for row in hanoi_rows
+                ]
+                st.success(f"พบ {len(display):,} งวด")
+                st.dataframe(display, use_container_width=True, hide_index=True)
+                csv_data = __import__("pandas").DataFrame(display).to_csv(index=False, encoding="utf-8-sig")
+                st.download_button(
+                    "ดาวน์โหลดหวยฮานอย CSV",
+                    data=csv_data,
+                    file_name="hanoi_lottery_1year.csv",
+                    mime="text/csv",
+                    key="hanoi_csv",
+                )
+            else:
+                st.warning("ยังไม่พบข้อมูลหวยฮานอย หรือเว็บไซต์ต้นทางไม่ตอบสนอง")
+        except Exception as e:
+            st.error("โหลดข้อมูลหวยฮานอยไม่สำเร็จ")
+            st.caption(str(e))
+
+
+st.divider()
+st.caption("Mon101")
