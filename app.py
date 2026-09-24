@@ -832,4 +832,24 @@ with tab10:
             st.download_button(
                 "ดาวน์โหลดข้อมูลปีนี้ CSV",
                 data=csv_data,
-              
+    file_name=f"lottery_{selected_year}.csv",
+                mime="text/csv",
+            )
+
+        else:
+            st.warning(
+                "ไม่พบข้อมูลสำหรับปีที่เลือก"
+            )
+
+    except Exception as e:
+        st.error(
+            "โหลดข้อมูลย้อนหลังไม่สำเร็จ"
+        )
+        st.code(str(e))
+
+    st.divider()
+
+    st.subheader("🔎 ค้นหาเลข")
+
+    search_number = st.text_input(
+        "กรอกเลข 6 หลัก"          
